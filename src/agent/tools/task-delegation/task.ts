@@ -2,7 +2,7 @@ import { tool, readUIMessageStream } from "ai";
 import { z } from "zod";
 import { explorerSubagent } from "./subagents/explorer";
 import { executorSubagent } from "./subagents/executor";
-import type { AgentContext } from "../../types";
+import { getSandbox } from "../../utils";
 
 const subagentTypeSchema = z.enum(["explorer", "executor"]);
 
@@ -76,8 +76,7 @@ IMPORTANT:
 NOTE: The executor subagent requires user approval before running because it has full write access.`,
   inputSchema: taskInputSchema,
   execute: async function* ({ subagentType, task, instructions }, { experimental_context }) {
-    const context = experimental_context as AgentContext;
-    const sandbox = context.sandbox;
+    const sandbox = getSandbox(experimental_context);
 
     const subagent = subagentType === "explorer" ? explorerSubagent : executorSubagent;
 

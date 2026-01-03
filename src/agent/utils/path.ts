@@ -1,4 +1,6 @@
 import * as path from "path";
+import type { AgentContext } from "../types";
+import type { Sandbox } from "../sandbox";
 
 /**
  * Check if a file path is within a given directory.
@@ -18,4 +20,22 @@ export function isPathWithinDirectory(
     resolvedPath.startsWith(resolvedDir + path.sep) ||
     resolvedPath === resolvedDir
   );
+}
+
+/**
+ * Get sandbox from experimental context with null safety.
+ * Throws a descriptive error if sandbox is not initialized.
+ *
+ * @param experimental_context - The context passed to tool execute functions
+ * @returns The sandbox instance
+ * @throws Error if sandbox is not available in context
+ */
+export function getSandbox(experimental_context: unknown): Sandbox {
+  const context = experimental_context as AgentContext | undefined;
+  if (!context?.sandbox) {
+    throw new Error(
+      "Sandbox not initialized in context. Ensure the agent is configured with a sandbox."
+    );
+  }
+  return context.sandbox;
 }

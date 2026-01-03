@@ -1,8 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as path from "path";
-import type { AgentContext } from "../../types";
-import { isPathWithinDirectory } from "../../utils";
+import { isPathWithinDirectory, getSandbox } from "../../utils";
 
 const writeInputSchema = z.object({
   filePath: z.string().describe("Absolute path to the file to write"),
@@ -66,8 +65,7 @@ EXAMPLES:
 - Replace a script after reading it: filePath: "/Users/username/project/scripts/build.sh", content: "<entire updated script>"`,
   inputSchema: writeInputSchema,
   execute: async ({ filePath, content }, { experimental_context }) => {
-    const context = experimental_context as AgentContext;
-    const sandbox = context.sandbox;
+    const sandbox = getSandbox(experimental_context);
     const workingDirectory = sandbox.workingDirectory;
 
     try {
@@ -135,8 +133,7 @@ EXAMPLES:
 - Rename a variable throughout a file: filePath: "/Users/username/project/src/api.ts", oldString: "oldApiClient", newString: "newApiClient", replaceAll: true`,
   inputSchema: editInputSchema,
   execute: async ({ filePath, oldString, newString, replaceAll = false }, { experimental_context }) => {
-    const context = experimental_context as AgentContext;
-    const sandbox = context.sandbox;
+    const sandbox = getSandbox(experimental_context);
     const workingDirectory = sandbox.workingDirectory;
 
     try {

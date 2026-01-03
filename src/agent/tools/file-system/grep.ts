@@ -1,9 +1,8 @@
 import { tool } from "ai";
 import { z } from "zod";
 import * as path from "path";
-import type { AgentContext } from "../../types";
 import type { Sandbox } from "../../sandbox";
-import { isPathWithinDirectory } from "../../utils";
+import { isPathWithinDirectory, getSandbox } from "../../utils";
 
 interface GrepMatch {
   file: string;
@@ -129,8 +128,7 @@ EXAMPLES:
     glob,
     caseSensitive = true,
   }, { experimental_context }) => {
-    const context = experimental_context as AgentContext;
-    const sandbox = context.sandbox;
+    const sandbox = getSandbox(experimental_context);
     const workingDirectory = sandbox.workingDirectory;
 
     try {
