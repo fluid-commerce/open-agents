@@ -1,4 +1,4 @@
-import type { Dirent } from "fs";
+import type { Dirent } from "node:fs";
 
 /**
  * File stats returned by sandbox.stat()

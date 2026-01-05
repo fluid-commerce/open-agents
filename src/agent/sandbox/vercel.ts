@@ -1,5 +1,5 @@
 import { Sandbox as VercelSandboxSDK } from "@vercel/sandbox";
-import type { Dirent } from "fs";
+import type { Dirent } from "node:fs";
 import type { Sandbox, SandboxStats, ExecResult } from "./interface";
 
 const MAX_OUTPUT_LENGTH = 50_000;
@@ -156,7 +156,7 @@ export class VercelSandbox implements Sandbox {
     return new VercelSandbox(sdk, workingDirectory, env, currentBranch);
   }
 
-  async readFile(path: string, encoding: "utf-8"): Promise<string> {
+  async readFile(path: string, _encoding: "utf-8"): Promise<string> {
     const result = await this.sdk.runCommand({
       cmd: "cat",
       args: [path],
@@ -173,7 +173,7 @@ export class VercelSandbox implements Sandbox {
   async writeFile(
     path: string,
     content: string,
-    encoding: "utf-8",
+    _encoding: "utf-8",
   ): Promise<void> {
     // Ensure parent directory exists
     const parentDir = path.substring(0, path.lastIndexOf("/"));
@@ -251,7 +251,7 @@ export class VercelSandbox implements Sandbox {
 
   async readdir(
     path: string,
-    options: { withFileTypes: true },
+    _options: { withFileTypes: true },
   ): Promise<Dirent[]> {
     // List files with type info using find
     const result = await this.sdk.runCommand({
@@ -297,7 +297,7 @@ export class VercelSandbox implements Sandbox {
   async exec(
     command: string,
     cwd: string,
-    timeoutMs: number,
+    _timeoutMs: number,
   ): Promise<ExecResult> {
     try {
       const result = await this.sdk.runCommand({

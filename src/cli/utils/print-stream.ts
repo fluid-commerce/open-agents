@@ -1,7 +1,7 @@
-import { type StreamTextResult } from "ai";
+import type { StreamTextResult, ToolSet } from "ai";
 
-export async function printStream(
-  result: StreamTextResult<any, any>,
+export async function printStream<TTools extends ToolSet>(
+  result: StreamTextResult<TTools, any>,
   options?: {
     includeReasoning?: boolean;
   },

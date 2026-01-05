@@ -35,12 +35,14 @@ async function getGitFiles(cwd: string): Promise<Suggestion[]> {
         const parts = file.split("/");
         let dirPath = "";
         for (let i = 0; i < parts.length - 1; i++) {
-          dirPath = dirPath ? dirPath + "/" + parts[i] : parts[i]!;
+          const part = parts[i];
+          if (!part) continue;
+          dirPath = dirPath ? `${dirPath}/${part}` : part;
           if (!seenDirs.has(dirPath)) {
             seenDirs.add(dirPath);
             results.push({
-              value: dirPath + "/",
-              display: dirPath + "/",
+              value: `${dirPath}/`,
+              display: `${dirPath}/`,
               isDirectory: true,
             });
           }

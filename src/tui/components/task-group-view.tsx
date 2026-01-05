@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import { getToolName, isToolUIPart } from "ai";
 import type { TaskToolUIPart } from "../../agent/tools/task-delegation/task.js";
@@ -121,7 +121,7 @@ function getLastToolInfo(
     summary = `"${input.pattern}"`;
   } else if (input?.command) {
     const cmd = String(input.command);
-    summary = cmd.length > 40 ? cmd.slice(0, 40) + "..." : cmd;
+    summary = cmd.length > 40 ? `${cmd.slice(0, 40)}...` : cmd;
   }
 
   const displayName = toolName.charAt(0).toUpperCase() + toolName.slice(1);

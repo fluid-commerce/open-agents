@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import * as path from "path";
+import * as path from "node:path";
 import type { Sandbox } from "../../sandbox";
 import {
   isPathWithinDirectory,
@@ -103,8 +103,6 @@ const grepInputSchema = z.object({
     .optional()
     .describe("Case-sensitive search. Default: true"),
 });
-
-type GrepInput = z.infer<typeof grepInputSchema>;
 
 /**
  * Check if a path matches any path-glob approval rules for grep operations.

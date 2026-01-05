@@ -1,4 +1,4 @@
-import React, {
+import {
   useState,
   useRef,
   useCallback,
@@ -14,13 +14,13 @@ type TextInputProps = {
   onSubmit?: (value: string) => void;
   onCursorChange?: (position: number) => void;
   cursorPosition?: number;
-  onUpArrow?: () => boolean | void;
-  onDownArrow?: () => boolean | void;
-  onTab?: () => boolean | void;
-  onCtrlN?: () => boolean | void;
-  onCtrlP?: () => boolean | void;
-  onReturn?: () => boolean | void;
-  onPaste?: (value: string) => boolean | void;
+  onUpArrow?: () => boolean | undefined;
+  onDownArrow?: () => boolean | undefined;
+  onTab?: () => boolean | undefined;
+  onCtrlN?: () => boolean | undefined;
+  onCtrlP?: () => boolean | undefined;
+  onReturn?: () => boolean | undefined;
+  onPaste?: (value: string) => boolean | undefined;
   isTokenChar?: (char: string) => boolean;
   renderToken?: (token: string) => string;
   placeholder?: string;
@@ -37,12 +37,16 @@ function findPrevWordBoundary(value: string, cursorOffset: number): number {
   let pos = cursorOffset - 1;
 
   // Skip any trailing whitespace
-  while (pos > 0 && /\s/.test(value[pos]!)) {
+  while (pos > 0) {
+    const char = value[pos];
+    if (!char || !/\s/.test(char)) break;
     pos--;
   }
 
   // Skip the word characters
-  while (pos > 0 && !/\s/.test(value[pos - 1]!)) {
+  while (pos > 0) {
+    const prevChar = value[pos - 1];
+    if (!prevChar || /\s/.test(prevChar)) break;
     pos--;
   }
 
@@ -165,7 +169,9 @@ export function TextInput({
 
     // Strip bracketed paste escape sequences (used by Ghostty, iTerm2, etc.)
     // Start: \x1b[200~ End: \x1b[201~
-    buffered = buffered.replace(/\x1b\[200~/g, "").replace(/\x1b\[201~/g, "");
+    const pasteStart = `${String.fromCharCode(27)}[200~`;
+    const pasteEnd = `${String.fromCharCode(27)}[201~`;
+    buffered = buffered.replaceAll(pasteStart, "").replaceAll(pasteEnd, "");
 
     if (!buffered) return;
 
@@ -355,14 +361,15 @@ export function TextInput({
           if (key.meta) {
             let pos = currentCursor;
             // Skip current word
-            while (
-              pos < currentValue.length &&
-              !/\s/.test(currentValue[pos]!)
-            ) {
+            while (pos < currentValue.length) {
+              const char = currentValue[pos];
+              if (!char || /\s/.test(char)) break;
               pos++;
             }
             // Skip whitespace
-            while (pos < currentValue.length && /\s/.test(currentValue[pos]!)) {
+            while (pos < currentValue.length) {
+              const char = currentValue[pos];
+              if (!char || !/\s/.test(char)) break;
               pos++;
             }
             nextCursorOffset = pos;

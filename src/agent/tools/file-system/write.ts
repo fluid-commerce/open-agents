@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import * as path from "path";
+import * as path from "node:path";
 import {
   isPathWithinDirectory,
   getSandbox,

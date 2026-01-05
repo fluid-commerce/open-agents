@@ -1,7 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
-import * as path from "path";
-import * as fs from "fs";
+import * as path from "node:path";
+import * as fs from "node:fs";
 import {
   isPathWithinDirectory,
   getSandbox,
@@ -23,8 +23,6 @@ const readInputSchema = z.object({
     .optional()
     .describe("Maximum number of lines to read. Default: 2000"),
 });
-
-type ReadInput = z.infer<typeof readInputSchema>;
 
 /**
  * Resolve file path with fallback for root-like paths.

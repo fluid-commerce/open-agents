@@ -1,4 +1,4 @@
-import React, {
+import {
   useState,
   useEffect,
   useCallback,
@@ -354,7 +354,7 @@ export const InputBox = memo(function InputBox({
         // Replace the partial path with the selected suggestion + space
         const before = value.slice(0, mentionInfo.mentionStart + 1); // Include @
         const after = value.slice(cursorPosition);
-        const newValue = before + selected.value + " " + after;
+        const newValue = `${before}${selected.value} ${after}`;
         updateValue(newValue);
         // Update cursor position to after the space
         const newCursorPos =

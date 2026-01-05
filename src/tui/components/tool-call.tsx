@@ -1,10 +1,10 @@
-import React, { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { Box, Text, useInput } from "ink";
 import { useChat } from "@ai-sdk/react";
 import { getToolName, isTextUIPart, isToolUIPart } from "ai";
 import { useChatContext } from "../chat-context.js";
 import type { TUIAgentUIToolPart, ApprovalRule } from "../types.js";
-import * as path from "path";
+import * as path from "node:path";
 
 export type ToolApprovalInfo = {
   toolType: string;
@@ -299,7 +299,6 @@ function ToolLayout({
   denied,
   denialReason,
   approvalRequested,
-  approvalId,
   isActiveApproval,
 }: {
   name: string;
@@ -310,7 +309,6 @@ function ToolLayout({
   denied?: boolean;
   denialReason?: string;
   approvalRequested?: boolean;
-  approvalId?: string;
   isActiveApproval?: boolean;
 }) {
   const dotColor = denied
@@ -380,7 +378,6 @@ function FileChangeLayout({
   denied,
   denialReason,
   approvalRequested,
-  approvalId,
   isActiveApproval,
 }: {
   action: "Create" | "Update";
@@ -393,7 +390,6 @@ function FileChangeLayout({
   denied?: boolean;
   denialReason?: string;
   approvalRequested?: boolean;
-  approvalId?: string;
   isActiveApproval?: boolean;
 }) {
   const dotColor = denied
@@ -449,8 +445,8 @@ function FileChangeLayout({
       {/* Diff lines */}
       {showDiff && !approvalRequested && !denied && lines.length > 0 && (
         <Box flexDirection="column" paddingLeft={4}>
-          {lines.map((line, i) => (
-            <Box key={i}>
+          {lines.map((line) => (
+            <Box key={`${line.type}-${line.lineNumber ?? "none"}-${line.content}`}>
               {line.type === "separator" ? (
                 <Text color="gray">{line.content}</Text>
               ) : (
@@ -548,7 +544,7 @@ function createWriteDiffLines(
 function createEditDiffLines(
   oldString: string,
   newString: string,
-  contextLines: number = 2,
+  _contextLines: number = 2,
   maxLines: number = 15,
 ): { lines: DiffLine[]; additions: number; removals: number } {
   const oldLines = oldString.split("\n");
@@ -720,7 +716,6 @@ export function ToolCall({
           denied={denied}
           denialReason={denialReason}
           approvalRequested={approvalRequested}
-          approvalId={approvalId}
           isActiveApproval={isActiveApproval}
         />
       );
@@ -755,7 +750,6 @@ export function ToolCall({
           denied={denied}
           denialReason={denialReason}
           approvalRequested={approvalRequested}
-          approvalId={approvalId}
           isActiveApproval={isActiveApproval}
         />
       );
@@ -811,6 +805,10 @@ export function ToolCall({
       const allLines = combinedOutput.split("\n");
       const outputLines = allLines.slice(-3); // Last 3 lines
       const hasMoreLines = allLines.length > 3;
+      const outputLineItems = outputLines.map((line, index) => ({
+        line,
+        key: `${index}-${line}`,
+      }));
 
       return (
         <Box flexDirection="column" marginTop={1} marginBottom={1}>
@@ -838,7 +836,7 @@ export function ToolCall({
             <Text color="gray">(</Text>
             <Text color="white">
               {command.length > 60
-                ? command.slice(0, 60) + "…"
+                ? `${command.slice(0, 60)}…`
                 : command || "..."}
             </Text>
             <Text color="gray">)</Text>
@@ -873,8 +871,8 @@ export function ToolCall({
                         <Text color="gray">...</Text>
                       </Box>
                     )}
-                    {outputLines.map((line, i) => (
-                      <Box key={i} paddingLeft={isError ? 2 : 0}>
+                    {outputLineItems.map(({ line, key }, i) => (
+                      <Box key={key} paddingLeft={isError ? 2 : 0}>
                         {!hasMoreLines && !isError && i === 0 && (
                           <Text color="gray">└ </Text>
                         )}
@@ -987,7 +985,7 @@ export function ToolCall({
       const taskApprovalId = taskApprovalRequested
         ? part.approval?.id
         : undefined;
-      const isTaskActiveApproval =
+      const _isTaskActiveApproval =
         taskApprovalId != null && taskApprovalId === activeApprovalId;
       const taskDenied = part.state === "output-denied";
       const taskDenialReason = taskDenied ? part.approval?.reason : undefined;
@@ -1009,6 +1007,12 @@ export function ToolCall({
       const maxVisible = 4;
       const hiddenCount = Math.max(0, relevantParts.length - maxVisible);
       const visibleParts = relevantParts.slice(-maxVisible);
+      const visiblePartItems = visibleParts.map((visiblePart, index) => ({
+        part: visiblePart,
+        key: isToolUIPart(visiblePart)
+          ? visiblePart.toolCallId
+          : `text-${index}-${visiblePart.text}`,
+      }));
 
       const isComplete = hasOutput && !isPreliminary;
       const isStreaming = hasOutput && isPreliminary;
@@ -1069,14 +1073,14 @@ export function ToolCall({
           )}
 
           {/* Nested parts from subagent (text and tools in order) */}
-          {hasOutput && visibleParts.length > 0 && (
+          {hasOutput && visiblePartItems.length > 0 && (
             <Box flexDirection="column" paddingLeft={2} marginTop={1}>
               {hiddenCount > 0 && (
                 <Box marginBottom={1}>
                   <Text color="gray">... {hiddenCount} more above</Text>
                 </Box>
               )}
-              {visibleParts.map((p, i) => {
+              {visiblePartItems.map(({ part: p, key }) => {
                 if (isToolUIPart(p)) {
                   return <SubagentToolCall key={p.toolCallId} part={p} />;
                 }
@@ -1085,9 +1089,9 @@ export function ToolCall({
                   const text = p.text.trim();
                   if (!text) return null;
                   const truncated =
-                    text.length > 80 ? text.slice(0, 80) + "..." : text;
+                    text.length > 80 ? `${text.slice(0, 80)}...` : text;
                   return (
-                    <Box key={`text-${i}`} paddingLeft={1}>
+                    <Box key={key} paddingLeft={1}>
                       <Text color="gray">│ </Text>
                       <Text color="gray" dimColor>
                         {truncated}

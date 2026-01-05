@@ -1,4 +1,3 @@
-import React from "react";
 import { Box, Text } from "ink";
 
 type DiffLine = {
@@ -42,8 +41,8 @@ export function DiffView({
 
       {/* Diff lines */}
       <Box flexDirection="column" marginLeft={2}>
-        {displayLines.map((line, i) => (
-          <Box key={i}>
+        {displayLines.map((line) => (
+          <Box key={`${line.type}-${line.lineNumber}-${line.content}`}>
             {/* Line number */}
             <Text color="gray">
               {String(line.lineNumber).padStart(3, " ")}{" "}

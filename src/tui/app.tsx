@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, memo } from "react";
+import { useEffect, useState, useCallback, useMemo, memo } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { isToolUIPart, getToolName, type FileUIPart } from "ai";
 import { useChat } from "@ai-sdk/react";
@@ -576,7 +576,7 @@ function AppContent({ options }: AppProps) {
     if (options?.initialPrompt) {
       sendMessage({ text: options.initialPrompt });
     }
-  }, []);
+  }, [options?.initialPrompt, sendMessage]);
 
   const handleSubmit = useCallback(
     (prompt: string, files?: FileUIPart[]) => {

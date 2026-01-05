@@ -67,7 +67,13 @@ export function addCacheControl<T extends ToolSet>({
   providerOptions?: ProviderOptions;
 }): T | ModelMessage[] {
   if (!isAnthropicModel(model)) {
-    return (tools ?? messages)!;
+    if (tools !== undefined) {
+      return tools;
+    }
+    if (messages !== undefined) {
+      return messages;
+    }
+    throw new Error("Either tools or messages must be provided");
   }
 
   if (tools !== undefined) {

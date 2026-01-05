@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import * as path from "path";
+import * as path from "node:path";
 import type { Sandbox } from "../../sandbox";
 import {
   isPathWithinDirectory,
@@ -29,7 +29,7 @@ async function findFiles(
   const hasRecursive = pattern.includes("**");
 
   async function matchesPattern(
-    filePath: string,
+    _filePath: string,
     fileName: string,
   ): Promise<boolean> {
     const lastPart = patternParts[patternParts.length - 1] ?? "*";
@@ -43,7 +43,7 @@ async function findFiles(
 
     if (lastPart.includes("*")) {
       const regex = new RegExp(
-        "^" + lastPart.replace(/\*/g, ".*").replace(/\?/g, ".") + "$",
+        `^${lastPart.replace(/\*/g, ".*").replace(/\?/g, ".")}$`,
       );
       return regex.test(fileName);
     }
@@ -112,8 +112,6 @@ const globInputSchema = z.object({
     .optional()
     .describe("Maximum number of results. Default: 100"),
 });
-
-type GlobInput = z.infer<typeof globInputSchema>;
 
 /**
  * Check if a path matches any path-glob approval rules for glob operations.

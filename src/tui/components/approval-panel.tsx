@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Box, Text, useInput } from "ink";
 import { useChat } from "@ai-sdk/react";
 import { useChatContext } from "../chat-context.js";
@@ -138,13 +138,16 @@ export function ApprovalPanel({
   }, [toolPart, state.workingDirectory]);
   // Determine available options based on whether a rule can be inferred
   const canSaveRule = inferredRule !== null;
-  const maxOption = canSaveRule ? 2 : 1; // 0=Yes, 1=Don't ask again (if available), last=reason
-
   const [selected, setSelected] = useState(0);
   const [reason, setReason] = useState("");
 
   // Reset state when approval request changes
   useEffect(() => {
+    if (!approvalId) {
+      setSelected(0);
+      setReason("");
+      return;
+    }
     setSelected(0);
     setReason("");
   }, [approvalId]);
@@ -210,16 +213,18 @@ export function ApprovalPanel({
     if (goDown) {
       setSelected((prev) => (prev === reasonOptionIndex ? 0 : prev + 1));
     }
-    if (key.return) {
-      if (selected === 0) {
-        // Yes
-        addToolApprovalResponse({ id: approvalId, approved: true });
-      } else if (canSaveRule && selected === 1) {
-        // Yes, and don't ask again - add the rule then approve
-        addApprovalRule(inferredRule!);
-        addToolApprovalResponse({ id: approvalId, approved: true });
+      if (key.return) {
+        if (selected === 0) {
+          // Yes
+          addToolApprovalResponse({ id: approvalId, approved: true });
+        } else if (canSaveRule && selected === 1) {
+          // Yes, and don't ask again - add the rule then approve
+          if (inferredRule) {
+            addApprovalRule(inferredRule);
+          }
+          addToolApprovalResponse({ id: approvalId, approved: true });
+        }
       }
-    }
   });
 
   return (
@@ -248,8 +253,10 @@ export function ApprovalPanel({
       {/* Diff preview */}
       {diffInfo && diffInfo.lines.length > 0 && (
         <Box flexDirection="column" marginTop={1}>
-          {diffInfo.lines.map((line, i) => (
-            <Box key={i}>
+          {diffInfo.lines.map((line) => {
+            const lineKey = `${line.type}-${line.lineNumber ?? "none"}-${line.content}`;
+            return (
+              <Box key={lineKey}>
               {line.type === "separator" ? (
                 <Text color="gray"> {line.content}</Text>
               ) : line.type === "addition" ? (
@@ -273,8 +280,9 @@ export function ApprovalPanel({
                     .padEnd(DIFF_LINE_MAX_WIDTH, " ")}
                 </Text>
               )}
-            </Box>
-          ))}
+              </Box>
+            );
+          })}
         </Box>
       )}
 

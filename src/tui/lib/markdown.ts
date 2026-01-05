@@ -1,4 +1,4 @@
-import { Marked, type Tokens } from "marked";
+import { Marked, type Tokens, type RendererThis } from "marked";
 import chalk from "chalk";
 import { highlight } from "cli-highlight";
 
@@ -15,64 +15,66 @@ marked.use({
           language: lang || undefined,
           ignoreIllegals: true,
         });
-        return highlighted + "\n\n";
+        return `${highlighted}\n\n`;
       } catch {
         // Fallback to plain yellow if highlighting fails
-        return chalk.yellow(text) + "\n\n";
+        return `${chalk.yellow(text)}\n\n`;
       }
     },
 
-    blockquote(this: any, { tokens }: Tokens.Blockquote): string {
+    blockquote(this: RendererThis, { tokens }: Tokens.Blockquote): string {
       const text = this.parser.parse(tokens);
-      return chalk.gray("│ ") + text.trim().split("\n").join("\n│ ") + "\n\n";
+      return `${chalk.gray("│ ")}${text
+        .trim()
+        .split("\n")
+        .join("\n│ ")}\n\n`;
     },
 
-    heading(this: any, { tokens, depth }: Tokens.Heading): string {
+    heading(this: RendererThis, { tokens, depth }: Tokens.Heading): string {
       const text = this.parser.parseInline(tokens);
-      const prefix = "#".repeat(depth) + " ";
-      return chalk.bold.green(prefix + text) + "\n\n";
+      const prefix = `${"#".repeat(depth)} `;
+      return `${chalk.bold.green(prefix + text)}\n\n`;
     },
 
     hr(): string {
-      return chalk.dim("─".repeat(40)) + "\n\n";
+      return `${chalk.dim("─".repeat(40))}\n\n`;
     },
 
-    list(this: any, { items, ordered }: Tokens.List): string {
-      return (
-        items
-          .map((item, i) => {
-            const bullet = ordered ? `${i + 1}.` : "•";
-            const text = this.parser.parse(item.tokens).trim();
-            return `${bullet} ${text}`;
-          })
-          .join("\n") + "\n\n"
-      );
+    list(this: RendererThis, { items, ordered }: Tokens.List): string {
+      const listBody = items
+        .map((item, i) => {
+          const bullet = ordered ? `${i + 1}.` : "•";
+          const text = this.parser.parse(item.tokens).trim();
+          return `${bullet} ${text}`;
+        })
+        .join("\n");
+      return `${listBody}\n\n`;
     },
 
-    paragraph(this: any, { tokens }: Tokens.Paragraph): string {
-      return this.parser.parseInline(tokens) + "\n\n";
+    paragraph(this: RendererThis, { tokens }: Tokens.Paragraph): string {
+      return `${this.parser.parseInline(tokens)}\n\n`;
     },
 
-    strong(this: any, { tokens }: Tokens.Strong): string {
+    strong(this: RendererThis, { tokens }: Tokens.Strong): string {
       const text = this.parser.parseInline(tokens);
       return chalk.bold(text);
     },
 
-    em(this: any, { tokens }: Tokens.Em): string {
+    em(this: RendererThis, { tokens }: Tokens.Em): string {
       const text = this.parser.parseInline(tokens);
       return chalk.italic(text);
     },
 
     codespan({ text }: Tokens.Codespan): string {
-      return chalk.yellow("`" + text + "`");
+      return chalk.yellow(`\`${text}\``);
     },
 
-    del(this: any, { tokens }: Tokens.Del): string {
+    del(this: RendererThis, { tokens }: Tokens.Del): string {
       const text = this.parser.parseInline(tokens);
       return chalk.strikethrough(text);
     },
 
-    link(this: any, { href, tokens }: Tokens.Link): string {
+    link(this: RendererThis, { href, tokens }: Tokens.Link): string {
       const text = this.parser.parseInline(tokens);
       return chalk.cyan.underline(text) + chalk.dim(` (${href})`);
     },
@@ -81,7 +83,7 @@ marked.use({
       return "[image]";
     },
 
-    text(this, token: Tokens.Text | Tokens.Escape): string {
+    text(this: RendererThis, token: Tokens.Text | Tokens.Escape): string {
       if ("tokens" in token && token.tokens) {
         return this.parser.parseInline(token.tokens);
       }
@@ -96,7 +98,7 @@ marked.use({
       return "\n";
     },
 
-    table(this: any, { header, rows }: Tokens.Table): string {
+    table(this: RendererThis, { header, rows }: Tokens.Table): string {
       // Calculate column widths
       const colWidths: number[] = [];
 
@@ -130,14 +132,7 @@ marked.use({
         row.map((text, i) => ` ${pad(text, colWidths[i] ?? 0)} `).join("│"),
       );
 
-      return (
-        chalk.bold(headerRow) +
-        "\n" +
-        chalk.dim(separator) +
-        "\n" +
-        bodyRows.join("\n") +
-        "\n\n"
-      );
+      return `${chalk.bold(headerRow)}\n${chalk.dim(separator)}\n${bodyRows.join("\n")}\n\n`;
     },
   },
 });

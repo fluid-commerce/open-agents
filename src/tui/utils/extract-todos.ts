@@ -65,7 +65,7 @@ export function extractTodosFromLastAssistantMessage(
     if (!message) continue;
     if (message.role === "assistant") {
       const todos = extractTodosFromMessage(message);
-      if (todos !== null && todos.some((t) => t.status !== "completed")) {
+      if (todos?.some((t) => t.status !== "completed")) {
         return todos;
       }
     }

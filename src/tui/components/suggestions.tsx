@@ -1,4 +1,4 @@
-import React, { memo, useMemo } from "react";
+import { memo, useMemo } from "react";
 import { Box, Text } from "ink";
 
 export type Suggestion = {
@@ -43,10 +43,6 @@ export const Suggestions = memo(function Suggestions({
   selectedIndex,
   visible,
 }: SuggestionsProps) {
-  if (!visible || suggestions.length === 0) {
-    return null;
-  }
-
   const maxDisplay = 10;
 
   // Calculate window based on selected index
@@ -54,6 +50,10 @@ export const Suggestions = memo(function Suggestions({
     () => calculateWindow(selectedIndex, suggestions.length, maxDisplay),
     [selectedIndex, suggestions.length],
   );
+
+  if (!visible || suggestions.length === 0) {
+    return null;
+  }
 
   const displayedSuggestions = suggestions.slice(windowStart, windowEnd);
   const hasItemsAbove = windowStart > 0;

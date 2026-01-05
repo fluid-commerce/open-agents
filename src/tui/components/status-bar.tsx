@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Box, Text } from "ink";
 import type { ThinkingState } from "../reasoning-context.js";
 import type { TodoItem } from "../../agent/types.js";
@@ -58,16 +58,21 @@ function PulsedWord({
   word: string;
   pulsePosition: number;
 }) {
+  const letters = useMemo(
+    () => word.split("").map((char, index) => ({ char, key: `${word}-${index}` })),
+    [word],
+  );
+
   return (
     <>
-      {word.split("").map((char, i) => {
+      {letters.map(({ char, key }, i) => {
         const distance = Math.abs(i - pulsePosition);
         const isBright = distance === 0;
         const isMedium = distance === 1;
 
         return (
           <Text
-            key={i}
+            key={key}
             color={isBright ? "yellowBright" : "yellow"}
             bold={isBright}
             dimColor={!isBright && !isMedium}
@@ -149,7 +154,6 @@ function getTodoIcon(status: TodoItem["status"]): string {
       return "☒";
     case "in_progress":
       return "◎";
-    case "pending":
     default:
       return "☐";
   }
@@ -161,7 +165,6 @@ function getTodoColor(status: TodoItem["status"]): string {
       return "gray";
     case "in_progress":
       return "yellow";
-    case "pending":
     default:
       return "white";
   }
