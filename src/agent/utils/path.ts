@@ -1,5 +1,10 @@
 import * as path from "path";
-import type { AgentContext, AgentMode, AutoApprove, ApprovalRule } from "../types";
+import type {
+	AgentContext,
+	AgentMode,
+	AutoApprove,
+	ApprovalRule,
+} from "../types";
 import type { Sandbox } from "../sandbox";
 
 /**
@@ -11,15 +16,15 @@ import type { Sandbox } from "../sandbox";
  * @returns true if filePath is within or equal to directory
  */
 export function isPathWithinDirectory(
-  filePath: string,
-  directory: string
+	filePath: string,
+	directory: string,
 ): boolean {
-  const resolvedPath = path.resolve(filePath);
-  const resolvedDir = path.resolve(directory);
-  return (
-    resolvedPath.startsWith(resolvedDir + path.sep) ||
-    resolvedPath === resolvedDir
-  );
+	const resolvedPath = path.resolve(filePath);
+	const resolvedDir = path.resolve(directory);
+	return (
+		resolvedPath.startsWith(resolvedDir + path.sep) ||
+		resolvedPath === resolvedDir
+	);
 }
 
 /**
@@ -31,13 +36,13 @@ export function isPathWithinDirectory(
  * @throws Error if sandbox is not available in context
  */
 export function getSandbox(experimental_context: unknown): Sandbox {
-  const context = experimental_context as AgentContext | undefined;
-  if (!context?.sandbox) {
-    throw new Error(
-      "Sandbox not initialized in context. Ensure the agent is configured with a sandbox."
-    );
-  }
-  return context.sandbox;
+	const context = experimental_context as AgentContext | undefined;
+	if (!context?.sandbox) {
+		throw new Error(
+			"Sandbox not initialized in context. Ensure the agent is configured with a sandbox.",
+		);
+	}
+	return context.sandbox;
 }
 
 /**
@@ -48,8 +53,8 @@ export function getSandbox(experimental_context: unknown): Sandbox {
  * @returns The agent mode ('interactive' or 'background')
  */
 export function getMode(experimental_context: unknown): AgentMode {
-  const context = experimental_context as AgentContext | undefined;
-  return context?.mode ?? "interactive";
+	const context = experimental_context as AgentContext | undefined;
+	return context?.mode ?? "interactive";
 }
 
 /**
@@ -60,7 +65,7 @@ export function getMode(experimental_context: unknown): AgentMode {
  * @returns true if running in background mode
  */
 export function isBackgroundMode(experimental_context: unknown): boolean {
-  return getMode(experimental_context) === "background";
+	return getMode(experimental_context) === "background";
 }
 
 /**
@@ -71,25 +76,25 @@ export function isBackgroundMode(experimental_context: unknown): boolean {
  * @returns Object with sandbox, mode, autoApprove, and approvalRules
  */
 export function getApprovalContext(experimental_context: unknown): {
-  sandbox: Sandbox;
-  workingDirectory: string;
-  mode: AgentMode;
-  autoApprove: AutoApprove;
-  approvalRules: ApprovalRule[];
+	sandbox: Sandbox;
+	workingDirectory: string;
+	mode: AgentMode;
+	autoApprove: AutoApprove;
+	approvalRules: ApprovalRule[];
 } {
-  const context = experimental_context as AgentContext | undefined;
-  if (!context?.sandbox) {
-    throw new Error(
-      "Context not initialized. Ensure the agent is configured with experimental_context."
-    );
-  }
-  return {
-    sandbox: context.sandbox,
-    workingDirectory: context.sandbox.workingDirectory,
-    mode: context.mode ?? "interactive",
-    autoApprove: context.autoApprove ?? "off",
-    approvalRules: context.approvalRules ?? [],
-  };
+	const context = experimental_context as AgentContext | undefined;
+	if (!context?.sandbox) {
+		throw new Error(
+			"Context not initialized. Ensure the agent is configured with experimental_context.",
+		);
+	}
+	return {
+		sandbox: context.sandbox,
+		workingDirectory: context.sandbox.workingDirectory,
+		mode: context.mode ?? "interactive",
+		autoApprove: context.autoApprove ?? "off",
+		approvalRules: context.approvalRules ?? [],
+	};
 }
 
 /**
@@ -102,37 +107,39 @@ export function getApprovalContext(experimental_context: unknown): {
  * @returns true if the file path matches the glob pattern
  */
 export function pathMatchesGlob(
-  filePath: string,
-  glob: string,
-  baseDir: string
+	filePath: string,
+	glob: string,
+	baseDir: string,
 ): boolean {
-  const resolvedPath = path.resolve(filePath);
-  const resolvedBase = path.resolve(baseDir);
+	const resolvedPath = path.resolve(filePath);
+	const resolvedBase = path.resolve(baseDir);
 
-  // Ensure the path is within the base directory
-  if (!isPathWithinDirectory(resolvedPath, resolvedBase)) {
-    return false;
-  }
+	// Ensure the path is within the base directory
+	if (!isPathWithinDirectory(resolvedPath, resolvedBase)) {
+		return false;
+	}
 
-  // Get the relative path from the base directory
-  // Normalize to POSIX separators for consistent matching
-  const relativePath = path.relative(resolvedBase, resolvedPath).replace(/\\/g, "/");
+	// Get the relative path from the base directory
+	// Normalize to POSIX separators for consistent matching
+	const relativePath = path
+		.relative(resolvedBase, resolvedPath)
+		.replace(/\\/g, "/");
 
-  // Convert glob pattern to regex
-  // First escape regex metacharacters (except * which we handle specially)
-  // Then handle ** (match any directory depth), * (match any chars except /)
-  try {
-    const globRegex = glob
-      .replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escape regex metacharacters
-      .replace(/\*\*/g, "<<<GLOBSTAR>>>") // Temporary placeholder
-      .replace(/\*/g, "[^/]*") // * matches anything except /
-      .replace(/<<<GLOBSTAR>>>/g, ".*") // ** matches anything including /
-      .replace(/\//g, "\\/"); // Escape path separators
+	// Convert glob pattern to regex
+	// First escape regex metacharacters (except * which we handle specially)
+	// Then handle ** (match any directory depth), * (match any chars except /)
+	try {
+		const globRegex = glob
+			.replace(/[.+?^${}()|[\]\\]/g, "\\$&") // Escape regex metacharacters
+			.replace(/\*\*/g, "<<<GLOBSTAR>>>") // Temporary placeholder
+			.replace(/\*/g, "[^/]*") // * matches anything except /
+			.replace(/<<<GLOBSTAR>>>/g, ".*") // ** matches anything including /
+			.replace(/\//g, "\\/"); // Escape path separators
 
-    const regex = new RegExp(`^${globRegex}`);
-    return regex.test(relativePath);
-  } catch {
-    // If regex construction fails (malformed pattern), treat as no match
-    return false;
-  }
+		const regex = new RegExp(`^${globRegex}`);
+		return regex.test(relativePath);
+	} catch {
+		// If regex construction fails (malformed pattern), treat as no match
+		return false;
+	}
 }

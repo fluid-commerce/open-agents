@@ -3,7 +3,7 @@ import { z } from "zod";
 import { todoItemSchema } from "../../types";
 
 export const todoWriteTool = tool({
-  description: `Create and manage a structured task list for the current session.
+	description: `Create and manage a structured task list for the current session.
 
 WHEN TO USE:
 - Complex multi-step tasks requiring 3 or more distinct steps
@@ -31,16 +31,18 @@ IMPORTANT:
 - Only one todo should be in-progress at a time; avoid parallel in-progress tasks
 - Mark todos as completed as soon as they are done - do not wait to batch completions
 - Use clear, concise todo content so the list remains readable to the user`,
-  inputSchema: z.object({
-    todos: z
-      .array(todoItemSchema)
-      .describe("The complete list of todo items. This replaces existing todos."),
-  }),
-  execute: async ({ todos }) => {
-    return {
-      success: true,
-      message: `Updated task list with ${todos.length} items`,
-      todos,
-    };
-  },
+	inputSchema: z.object({
+		todos: z
+			.array(todoItemSchema)
+			.describe(
+				"The complete list of todo items. This replaces existing todos.",
+			),
+	}),
+	execute: async ({ todos }) => {
+		return {
+			success: true,
+			message: `Updated task list with ${todos.length} items`,
+			todos,
+		};
+	},
 });

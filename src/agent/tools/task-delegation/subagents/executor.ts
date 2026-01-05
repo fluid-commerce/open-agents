@@ -44,35 +44,37 @@ Example final response:
 You have full access to file operations (read, write, edit, grep, glob) and bash commands. Use them to complete your task.`;
 
 const callOptionsSchema = z.object({
-  task: z.string().describe("Short description of the task"),
-  instructions: z.string().describe("Detailed instructions for the task"),
-  sandbox: z.custom<Sandbox>().describe("Sandbox for file system and shell operations"),
+	task: z.string().describe("Short description of the task"),
+	instructions: z.string().describe("Detailed instructions for the task"),
+	sandbox: z
+		.custom<Sandbox>()
+		.describe("Sandbox for file system and shell operations"),
 });
 
 export type ExecutorCallOptions = z.infer<typeof callOptionsSchema>;
 
 export const executorSubagent = new ToolLoopAgent({
-  model: "anthropic/claude-haiku-4.5",
-  instructions: EXECUTOR_SYSTEM_PROMPT,
-  tools: {
-    read: readFileTool(),
-    write: writeFileTool({ needsApproval: false }),
-    edit: editFileTool({ needsApproval: false }),
-    grep: grepTool(),
-    glob: globTool(),
-    // Use smart approval: safe read-only commands run without approval,
-    // dangerous commands (rm, git push, etc.) still require approval
-    bash: bashTool({
-      needsApproval: ({ command }) => commandNeedsApproval(command)
-    }),
-  },
-  stopWhen: stepCountIs(30),
-  callOptionsSchema,
-  prepareCall: ({ options, ...settings }) => {
-    const sandbox = options.sandbox;
-    return {
-      ...settings,
-      instructions: `${EXECUTOR_SYSTEM_PROMPT}
+	model: "anthropic/claude-haiku-4.5",
+	instructions: EXECUTOR_SYSTEM_PROMPT,
+	tools: {
+		read: readFileTool(),
+		write: writeFileTool({ needsApproval: false }),
+		edit: editFileTool({ needsApproval: false }),
+		grep: grepTool(),
+		glob: globTool(),
+		// Use smart approval: safe read-only commands run without approval,
+		// dangerous commands (rm, git push, etc.) still require approval
+		bash: bashTool({
+			needsApproval: ({ command }) => commandNeedsApproval(command),
+		}),
+	},
+	stopWhen: stepCountIs(30),
+	callOptionsSchema,
+	prepareCall: ({ options, ...settings }) => {
+		const sandbox = options.sandbox;
+		return {
+			...settings,
+			instructions: `${EXECUTOR_SYSTEM_PROMPT}
 
 Working directory: ${sandbox.workingDirectory}
 
@@ -86,7 +88,7 @@ ${options.instructions}
 - You CANNOT ask questions - no one will respond
 - Complete the task fully before returning
 - Your final message MUST include both a **Summary** of what you did AND the **Answer** to the task`,
-      experimental_context: { sandbox },
-    };
-  },
+			experimental_context: { sandbox },
+		};
+	},
 });

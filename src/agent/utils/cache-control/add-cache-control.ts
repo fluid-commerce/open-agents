@@ -27,9 +27,9 @@ type ProviderOptions = Record<string, Record<string, JSONValue>>;
  * ```
  */
 export function addCacheControl<T extends ToolSet>(options: {
-  tools: T;
-  model: LanguageModel;
-  providerOptions?: ProviderOptions;
+	tools: T;
+	model: LanguageModel;
+	providerOptions?: ProviderOptions;
 }): T;
 
 /**
@@ -50,63 +50,63 @@ export function addCacheControl<T extends ToolSet>(options: {
  * ```
  */
 export function addCacheControl(options: {
-  messages: ModelMessage[];
-  model: LanguageModel;
-  providerOptions?: ProviderOptions;
+	messages: ModelMessage[];
+	model: LanguageModel;
+	providerOptions?: ProviderOptions;
 }): ModelMessage[];
 
 export function addCacheControl<T extends ToolSet>({
-  tools,
-  messages,
-  model,
-  providerOptions = DEFAULT_CACHE_CONTROL_OPTIONS,
+	tools,
+	messages,
+	model,
+	providerOptions = DEFAULT_CACHE_CONTROL_OPTIONS,
 }: {
-  tools?: T;
-  messages?: ModelMessage[];
-  model: LanguageModel;
-  providerOptions?: ProviderOptions;
+	tools?: T;
+	messages?: ModelMessage[];
+	model: LanguageModel;
+	providerOptions?: ProviderOptions;
 }): T | ModelMessage[] {
-  if (!isAnthropicModel(model)) {
-    return (tools ?? messages)!;
-  }
+	if (!isAnthropicModel(model)) {
+		return (tools ?? messages)!;
+	}
 
-  if (tools !== undefined) {
-    const entries = Object.entries(tools);
-    if (entries.length === 0) return tools;
-    
-    // Anthropic supports max 4 cache breakpoints - only mark the last tool
-    // to avoid exceeding the limit when combined with message caching
-    const lastIndex = entries.length - 1;
-    return Object.fromEntries(
-      entries.map(([name, tool], index) => [
-        name,
-        index === lastIndex
-          ? {
-              ...tool,
-              providerOptions: {
-                ...tool.providerOptions,
-                ...providerOptions,
-              },
-            }
-          : tool,
-      ]),
-    ) as T;
-  }
+	if (tools !== undefined) {
+		const entries = Object.entries(tools);
+		if (entries.length === 0) return tools;
 
-  if (messages !== undefined) {
-    if (messages.length === 0) return messages;
-    return messages.map((message, index) =>
-      index === messages.length - 1
-        ? {
-            ...message,
-            providerOptions: {
-              ...message.providerOptions,
-              ...providerOptions,
-            },
-          }
-        : message,
-    );
-  }
+		// Anthropic supports max 4 cache breakpoints - only mark the last tool
+		// to avoid exceeding the limit when combined with message caching
+		const lastIndex = entries.length - 1;
+		return Object.fromEntries(
+			entries.map(([name, tool], index) => [
+				name,
+				index === lastIndex
+					? {
+							...tool,
+							providerOptions: {
+								...tool.providerOptions,
+								...providerOptions,
+							},
+						}
+					: tool,
+			]),
+		) as T;
+	}
 
-  throw new Error("Either tools or messages must be provided");
+	if (messages !== undefined) {
+		if (messages.length === 0) return messages;
+		return messages.map((message, index) =>
+			index === messages.length - 1
+				? {
+						...message,
+						providerOptions: {
+							...message.providerOptions,
+							...providerOptions,
+						},
+					}
+				: message,
+		);
+	}
+
+	throw new Error("Either tools or messages must be provided");
 }

@@ -8,9 +8,9 @@ export const pasteCollapseLineThreshold = 5;
 
 // Default agent options factory
 export function createDefaultAgentOptions(
-  workingDirectory: string,
+	workingDirectory: string,
 ): TUIAgentCallOptions {
-  return {
-    workingDirectory,
-  };
+	return {
+		workingDirectory,
+	};
 }

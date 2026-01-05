@@ -169,34 +169,36 @@ Your sandbox is ephemeral. All work is lost when the session ends unless committ
 - Ensure all changes are pushed before reporting completion`;
 
 export interface BuildSystemPromptOptions {
-  cwd?: string;
-  mode?: "interactive" | "background";
-  currentBranch?: string;
-  customInstructions?: string;
+	cwd?: string;
+	mode?: "interactive" | "background";
+	currentBranch?: string;
+	customInstructions?: string;
 }
 
 export function buildSystemPrompt(options: BuildSystemPromptOptions): string {
-  const parts = [DEEP_AGENT_SYSTEM_PROMPT];
+	const parts = [DEEP_AGENT_SYSTEM_PROMPT];
 
-  if (options.cwd) {
-    parts.push(`\n# Environment\n\nWorking directory: ${options.cwd}`);
-  }
+	if (options.cwd) {
+		parts.push(`\n# Environment\n\nWorking directory: ${options.cwd}`);
+	}
 
-  if (options.mode === "background") {
-    if (!options.currentBranch) {
-      throw new Error("Background mode requires currentBranch to be set.");
-    }
-    const backgroundInstructions = BACKGROUND_MODE_INSTRUCTIONS.replace(
-      "{branch}",
-      options.currentBranch
-    );
-    parts.push(`\nCurrent branch: ${options.currentBranch}`);
-    parts.push(`\n${backgroundInstructions}`);
-  }
+	if (options.mode === "background") {
+		if (!options.currentBranch) {
+			throw new Error("Background mode requires currentBranch to be set.");
+		}
+		const backgroundInstructions = BACKGROUND_MODE_INSTRUCTIONS.replace(
+			"{branch}",
+			options.currentBranch,
+		);
+		parts.push(`\nCurrent branch: ${options.currentBranch}`);
+		parts.push(`\n${backgroundInstructions}`);
+	}
 
-  if (options.customInstructions) {
-    parts.push(`\n# Project-Specific Instructions\n\n${options.customInstructions}`);
-  }
+	if (options.customInstructions) {
+		parts.push(
+			`\n# Project-Specific Instructions\n\n${options.customInstructions}`,
+		);
+	}
 
-  return parts.join("\n");
+	return parts.join("\n");
 }

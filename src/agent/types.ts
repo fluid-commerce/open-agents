@@ -5,11 +5,11 @@ export const todoStatusSchema = z.enum(["pending", "in_progress", "completed"]);
 export type TodoStatus = z.infer<typeof todoStatusSchema>;
 
 export const todoItemSchema = z.object({
-  id: z.string().describe("Unique identifier for the todo item"),
-  content: z.string().describe("The task description"),
-  status: todoStatusSchema.describe(
-    "Current status. Only ONE task should be in_progress at a time."
-  ),
+	id: z.string().describe("Unique identifier for the todo item"),
+	content: z.string().describe("The task description"),
+	status: todoStatusSchema.describe(
+		"Current status. Only ONE task should be in_progress at a time.",
+	),
 });
 export type TodoItem = z.infer<typeof todoItemSchema>;
 
@@ -31,10 +31,10 @@ export type AgentMode = "interactive" | "background";
 export type AutoApprove = "off" | "edits" | "all";
 
 export interface AgentContext {
-  sandbox: Sandbox;
-  mode: AgentMode;
-  autoApprove: AutoApprove;
-  approvalRules: ApprovalRule[];
+	sandbox: Sandbox;
+	mode: AgentMode;
+	autoApprove: AutoApprove;
+	approvalRules: ApprovalRule[];
 }
 
 /**
@@ -45,21 +45,21 @@ export interface AgentContext {
  * Outside-cwd operations always require explicit approval regardless of rules.
  */
 export const approvalRuleSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("command-prefix"),
-    tool: z.literal("bash"),
-    prefix: z.string().min(1, "Prefix cannot be empty"),
-  }),
-  z.object({
-    type: z.literal("path-glob"),
-    tool: z.enum(["write", "edit", "grep", "glob"]),
-    glob: z.string(),
-  }),
-  z.object({
-    type: z.literal("subagent-type"),
-    tool: z.literal("task"),
-    subagentType: z.enum(["explorer", "executor"]),
-  }),
+	z.object({
+		type: z.literal("command-prefix"),
+		tool: z.literal("bash"),
+		prefix: z.string().min(1, "Prefix cannot be empty"),
+	}),
+	z.object({
+		type: z.literal("path-glob"),
+		tool: z.enum(["write", "edit", "grep", "glob"]),
+		glob: z.string(),
+	}),
+	z.object({
+		type: z.literal("subagent-type"),
+		tool: z.literal("task"),
+		subagentType: z.enum(["explorer", "executor"]),
+	}),
 ]);
 
 export type ApprovalRule = z.infer<typeof approvalRuleSchema>;

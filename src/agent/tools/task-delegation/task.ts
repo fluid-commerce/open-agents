@@ -8,56 +8,59 @@ import type { ApprovalRule } from "../../types";
 const subagentTypeSchema = z.enum(["explorer", "executor"]);
 
 const taskInputSchema = z.object({
-  subagentType: subagentTypeSchema.describe(
-    "Type of subagent: 'explorer' for read-only research, 'executor' for implementation tasks"
-  ),
-  task: z
-    .string()
-    .describe("Short description of the task (displayed to user)"),
-  instructions: z.string().describe(
-    `Detailed instructions for the subagent. Include:
+	subagentType: subagentTypeSchema.describe(
+		"Type of subagent: 'explorer' for read-only research, 'executor' for implementation tasks",
+	),
+	task: z
+		.string()
+		.describe("Short description of the task (displayed to user)"),
+	instructions: z.string().describe(
+		`Detailed instructions for the subagent. Include:
 - Goal and deliverables
 - Step-by-step procedure
 - Constraints and patterns to follow
-- How to verify the work`
-  ),
+- How to verify the work`,
+	),
 });
 
 /**
  * Check if a subagent type matches any approval rules.
  */
-function subagentMatchesApprovalRule(subagentType: string, approvalRules: ApprovalRule[]): boolean {
-  for (const rule of approvalRules) {
-    if (rule.type === "subagent-type" && rule.tool === "task") {
-      if (rule.subagentType === subagentType) {
-        return true;
-      }
-    }
-  }
-  return false;
+function subagentMatchesApprovalRule(
+	subagentType: string,
+	approvalRules: ApprovalRule[],
+): boolean {
+	for (const rule of approvalRules) {
+		if (rule.type === "subagent-type" && rule.tool === "task") {
+			if (rule.subagentType === subagentType) {
+				return true;
+			}
+		}
+	}
+	return false;
 }
 
 export const taskTool = tool({
-  // Executor subagent has full write access, so require approval
-  // Explorer is read-only, so no approval needed
-  needsApproval: ({ subagentType }, { experimental_context }) => {
-    const ctx = getApprovalContext(experimental_context);
-    // Explorer never needs approval
-    if (subagentType !== "executor") {
-      return false;
-    }
-    // In background mode, auto-approve
-    if (ctx.mode === "background") {
-      return false;
-    }
-    // Check if a rule matches this subagent type
-    if (subagentMatchesApprovalRule(subagentType, ctx.approvalRules)) {
-      return false;
-    }
-    // Default: executor needs approval
-    return true;
-  },
-  description: `Launch a specialized subagent to handle complex tasks autonomously.
+	// Executor subagent has full write access, so require approval
+	// Explorer is read-only, so no approval needed
+	needsApproval: ({ subagentType }, { experimental_context }) => {
+		const ctx = getApprovalContext(experimental_context);
+		// Explorer never needs approval
+		if (subagentType !== "executor") {
+			return false;
+		}
+		// In background mode, auto-approve
+		if (ctx.mode === "background") {
+			return false;
+		}
+		// Check if a rule matches this subagent type
+		if (subagentMatchesApprovalRule(subagentType, ctx.approvalRules)) {
+			return false;
+		}
+		// Default: executor needs approval
+		return true;
+	},
+	description: `Launch a specialized subagent to handle complex tasks autonomously.
 
 SUBAGENT TYPES:
 
@@ -105,36 +108,41 @@ IMPORTANT:
 - The parent agent will not see the subagent's internal tool calls, only its final summary
 
 NOTE: The executor subagent requires user approval before running because it has full write access.`,
-  inputSchema: taskInputSchema,
-  execute: async function* ({ subagentType, task, instructions }, { experimental_context }) {
-    const sandbox = getSandbox(experimental_context);
+	inputSchema: taskInputSchema,
+	execute: async function* (
+		{ subagentType, task, instructions },
+		{ experimental_context },
+	) {
+		const sandbox = getSandbox(experimental_context);
 
-    const subagent = subagentType === "explorer" ? explorerSubagent : executorSubagent;
+		const subagent =
+			subagentType === "explorer" ? explorerSubagent : executorSubagent;
 
-    const result = await subagent.stream({
-      prompt: "Complete this task and provide a summary of what you accomplished.",
-      options: { task, instructions, sandbox },
-    });
+		const result = await subagent.stream({
+			prompt:
+				"Complete this task and provide a summary of what you accomplished.",
+			options: { task, instructions, sandbox },
+		});
 
-    for await (const message of readUIMessageStream({
-      stream: result.toUIMessageStream(),
-    })) {
-      yield message;
-    }
-  },
-  toModelOutput: ({ output: message }) => {
-    if (!message) {
-      return { type: "text", value: "Task completed." };
-    }
+		for await (const message of readUIMessageStream({
+			stream: result.toUIMessageStream(),
+		})) {
+			yield message;
+		}
+	},
+	toModelOutput: ({ output: message }) => {
+		if (!message) {
+			return { type: "text", value: "Task completed." };
+		}
 
-    const lastTextPart = message.parts.findLast((p) => p.type === "text");
+		const lastTextPart = message.parts.findLast((p) => p.type === "text");
 
-    if (!lastTextPart || lastTextPart.type !== "text") {
-      return { type: "text", value: "Task completed." };
-    }
+		if (!lastTextPart || lastTextPart.type !== "text") {
+			return { type: "text", value: "Task completed." };
+		}
 
-    return { type: "text", value: lastTextPart.text };
-  },
+		return { type: "text", value: lastTextPart.text };
+	},
 });
 
 export type TaskToolUIPart = UIToolInvocation<typeof taskTool>;

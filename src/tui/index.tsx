@@ -11,12 +11,15 @@ import type { TUIOptions } from "./types.js";
 export type { TUIOptions, AutoAcceptMode } from "./types.js";
 export { useChatContext, ChatProvider } from "./chat-context.js";
 export { useReasoningContext, ReasoningProvider } from "./reasoning-context.js";
-export { useExpandedView, ExpandedViewProvider } from "./expanded-view-context.js";
+export {
+	useExpandedView,
+	ExpandedViewProvider,
+} from "./expanded-view-context.js";
 export { useTodoView, TodoViewProvider } from "./todo-view-context.js";
 export {
-  tuiAgent,
-  tuiAgentModelId,
-  createDefaultAgentOptions,
+	tuiAgent,
+	tuiAgentModelId,
+	createDefaultAgentOptions,
 } from "./config.js";
 
 /**
@@ -39,27 +42,27 @@ export {
  * ```
  */
 export async function createTUI(options: TUIOptions): Promise<void> {
-  const agentOptions =
-    options.agentOptions ??
-    createDefaultAgentOptions(options.workingDirectory ?? process.cwd());
+	const agentOptions =
+		options.agentOptions ??
+		createDefaultAgentOptions(options.workingDirectory ?? process.cwd());
 
-  const { waitUntilExit } = render(
-    <ChatProvider
-      agentOptions={agentOptions}
-      model={options.header?.model ?? tuiAgentModelId}
-      workingDirectory={options.workingDirectory}
-    >
-      <ReasoningProvider>
-        <ExpandedViewProvider>
-          <TodoViewProvider>
-            <App options={options} />
-          </TodoViewProvider>
-        </ExpandedViewProvider>
-      </ReasoningProvider>
-    </ChatProvider>,
-  );
+	const { waitUntilExit } = render(
+		<ChatProvider
+			agentOptions={agentOptions}
+			model={options.header?.model ?? tuiAgentModelId}
+			workingDirectory={options.workingDirectory}
+		>
+			<ReasoningProvider>
+				<ExpandedViewProvider>
+					<TodoViewProvider>
+						<App options={options} />
+					</TodoViewProvider>
+				</ExpandedViewProvider>
+			</ReasoningProvider>
+		</ChatProvider>,
+	);
 
-  await waitUntilExit();
+	await waitUntilExit();
 }
 
 /**
@@ -67,25 +70,25 @@ export async function createTUI(options: TUIOptions): Promise<void> {
  * Useful for programmatic control.
  */
 export function renderTUI(options: TUIOptions) {
-  const agentOptions =
-    options.agentOptions ??
-    createDefaultAgentOptions(options.workingDirectory ?? process.cwd());
+	const agentOptions =
+		options.agentOptions ??
+		createDefaultAgentOptions(options.workingDirectory ?? process.cwd());
 
-  return render(
-    <ChatProvider
-      agentOptions={agentOptions}
-      model={options.header?.model ?? tuiAgentModelId}
-      workingDirectory={options.workingDirectory}
-    >
-      <ReasoningProvider>
-        <ExpandedViewProvider>
-          <TodoViewProvider>
-            <App options={options} />
-          </TodoViewProvider>
-        </ExpandedViewProvider>
-      </ReasoningProvider>
-    </ChatProvider>,
-  );
+	return render(
+		<ChatProvider
+			agentOptions={agentOptions}
+			model={options.header?.model ?? tuiAgentModelId}
+			workingDirectory={options.workingDirectory}
+		>
+			<ReasoningProvider>
+				<ExpandedViewProvider>
+					<TodoViewProvider>
+						<App options={options} />
+					</TodoViewProvider>
+				</ExpandedViewProvider>
+			</ReasoningProvider>
+		</ChatProvider>,
+	);
 }
 
 // Re-export components for custom TUI composition
