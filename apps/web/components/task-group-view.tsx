@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Loader2 } from "lucide-react";
 import { isToolUIPart, getToolName } from "ai";
 import type { TaskToolUIPart } from "@open-harness/agent";
+import { formatTokens } from "@open-harness/shared";
 import { cn } from "@/lib/utils";
 import { ApprovalButtons } from "./tool-call/approval-buttons";
 
@@ -43,13 +44,6 @@ function getTaskTokens(part: TaskToolUIPart): number | null {
   if (part.state !== "output-available") return null;
   const message = part.output;
   return message?.metadata?.inputTokens ?? null;
-}
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
-  }
-  return tokens.toString();
 }
 
 function getLastToolInfo(

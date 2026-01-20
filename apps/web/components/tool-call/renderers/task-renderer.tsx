@@ -5,18 +5,12 @@ import type React from "react";
 import { useState } from "react";
 import { isToolUIPart, isTextUIPart, getToolName } from "ai";
 import type { ToolRenderState } from "@open-harness/shared/lib/tool-state";
+import { formatTokens } from "@open-harness/shared";
 import type { TaskToolUIPart, SubagentUIMessage } from "@open-harness/agent";
 import { cn } from "@/lib/utils";
 import { ApprovalButtons } from "../approval-buttons";
 
 type SubagentMessagePart = SubagentUIMessage["parts"][number];
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
-  }
-  return tokens.toString();
-}
 
 function getToolSummary(part: SubagentMessagePart): string {
   switch (part.type) {
@@ -346,10 +340,9 @@ export function TaskRenderer({
       {!isExpanded && isComplete && (
         <div className="mt-2 pl-5 text-sm text-muted-foreground">
           Complete ({toolParts.length} tool calls
-          {(() => {
-            const inputTokens = message?.metadata?.inputTokens;
-            return inputTokens ? `, ${formatTokens(inputTokens)} tokens` : "";
-          })()}
+          {message?.metadata?.inputTokens
+            ? `, ${formatTokens(message.metadata.inputTokens)} tokens`
+            : ""}
           )
         </div>
       )}

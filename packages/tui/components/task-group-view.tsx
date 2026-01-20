@@ -2,6 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { Box, Text } from "ink";
 import { getToolName, isToolUIPart } from "ai";
 import type { TaskToolUIPart, SubagentUIMessage } from "@open-harness/agent";
+import { formatTokens } from "@open-harness/shared";
+
+type SubagentMessagePart = SubagentUIMessage["parts"][number];
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -105,11 +108,20 @@ function getTaskTokens(part: TaskToolUIPart): number | null {
   return message?.metadata?.inputTokens ?? null;
 }
 
-function formatTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
+function getToolSummary(part: SubagentMessagePart): string {
+  switch (part.type) {
+    case "tool-read":
+      return part.input?.filePath ?? "";
+    case "tool-grep":
+    case "tool-glob":
+      return part.input?.pattern ? `"${part.input.pattern}"` : "";
+    case "tool-bash": {
+      const cmd = part.input?.command ?? "";
+      return cmd.length > 40 ? cmd.slice(0, 40) + "..." : cmd;
+    }
+    default:
+      return "";
   }
-  return tokens.toString();
 }
 
 function getLastToolInfo(
@@ -126,17 +138,7 @@ function getLastToolInfo(
   if (!lastTool) return null;
 
   const toolName = getToolName(lastTool);
-  const input = lastTool.input as Record<string, unknown> | undefined;
-
-  let summary = "";
-  if (input?.filePath) {
-    summary = String(input.filePath);
-  } else if (input?.pattern) {
-    summary = `"${input.pattern}"`;
-  } else if (input?.command) {
-    const cmd = String(input.command);
-    summary = cmd.length > 40 ? cmd.slice(0, 40) + "..." : cmd;
-  }
+  const summary = getToolSummary(lastTool);
 
   const displayName = toolName.charAt(0).toUpperCase() + toolName.slice(1);
   return { name: displayName, summary };

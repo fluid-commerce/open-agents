@@ -1,15 +1,9 @@
 import React from "react";
 import { Box, Text } from "ink";
 import { getToolName, isTextUIPart, isToolUIPart } from "ai";
+import { formatTokens } from "@open-harness/shared";
 import type { ToolRendererProps } from "../../lib/render-tool";
 import { ToolSpinner } from "./shared";
-
-function formatTokens(tokens: number): string {
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k`;
-  }
-  return tokens.toString();
-}
 
 /**
  * Simplified tool call renderer for subagent tool parts.
@@ -183,10 +177,10 @@ export function TaskRenderer({ part, state }: ToolRendererProps<"tool-task">) {
           <Text color="gray">└ </Text>
           <Text color="white">
             Complete ({toolParts.length} tool calls
-            {(() => {
-              const inputTokens = message?.metadata?.inputTokens;
-              return inputTokens ? `, ${formatTokens(inputTokens)} tokens` : "";
-            })()})
+            {message?.metadata?.inputTokens
+              ? `, ${formatTokens(message.metadata.inputTokens)} tokens`
+              : ""}
+            )
           </Text>
         </Box>
       )}
