@@ -153,7 +153,15 @@ export function pathMatchesGlob(
       .replace(/\//g, "\\/"); // Escape path separators
 
     const regex = new RegExp(`^${globRegex}`);
-    return regex.test(relativePath);
+    if (regex.test(relativePath)) {
+      return true;
+    }
+    // If glob ends with /** and path doesn't end with /, try adding trailing /
+    // This allows directory paths to match their own glob (e.g., "apps" matches "apps/**")
+    if (glob.endsWith("/**") && !relativePath.endsWith("/")) {
+      return regex.test(relativePath + "/");
+    }
+    return false;
   } catch {
     // If regex construction fails (malformed pattern), treat as no match
     return false;
