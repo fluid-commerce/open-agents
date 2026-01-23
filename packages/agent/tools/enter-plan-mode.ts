@@ -4,9 +4,8 @@ import { join } from "node:path";
 import { generatePlanName } from "@open-harness/shared";
 import { getAgentContext } from "./utils";
 
-// TODO: if anthropic bug still exists, add empty item here
 const enterPlanModeInputSchema = z.object({
-  _: z.string().optional(),
+  _: z.string().describe("Pass an empty string"),
 });
 
 export const enterPlanModeTool = () =>
