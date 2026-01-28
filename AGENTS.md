@@ -207,7 +207,48 @@ Use `catalog:` for shared external versions:
 }
 ```
 
+## Slack Integration (WIP)
+
+### Status
+- **Working**: OAuth flow, webhook handling, receiving @mentions, creating tasks, basic responses
+- **TODO**: Full AI agent integration (streaming responses, tool use)
+
+### Architecture
+```
+Slack @mention → /api/webhooks/slack → Create/lookup task → Post acknowledgment
+```
+
+### Files
+- `apps/web/lib/db/schema.ts` - `connectedApps` table, `source` column on tasks
+- `apps/web/lib/db/connected-apps.ts` - CRUD with encrypted bot tokens
+- `apps/web/app/api/auth/slack/install/route.ts` - OAuth install flow
+- `apps/web/app/api/auth/slack/callback/route.ts` - OAuth callback
+- `apps/web/app/api/webhooks/slack/route.ts` - Event handler
+- `apps/web/app/settings/connectors/` - Settings UI
+
+### Environment Variables
+```bash
+SLACK_CLIENT_ID=...
+SLACK_CLIENT_SECRET=...
+SLACK_SIGNING_SECRET=...
+APP_URL=https://your-ngrok-url.ngrok-free.dev  # For local dev with ngrok
+```
+
+### Local Development with ngrok
+1. Start ngrok: `ngrok http 3000`
+2. Set `APP_URL` to your ngrok URL in `.env.local`
+3. Add ngrok callback URL to GitHub OAuth app settings
+4. Update Slack app manifest with ngrok URLs
+5. Access app via ngrok URL (not localhost) so cookies work
+
+### Next Steps
+1. Integrate with agent to process messages and stream AI responses
+2. Handle Slack message length limits (split long responses)
+3. Add typing indicators while processing
+4. Support file attachments and code blocks
+
 ## Lessons Learned
 
 - Skill discovery de-duplicates by first-seen name, so project skill directories must be scanned before user-level directories to allow project overrides.
 - The system prompt should list all model-invocable skills (including non-user-invocable ones), and reserve user-invocable filtering for the slash-command UI.
+- When using ngrok for local dev with OAuth, all auth flows (GitHub + Slack) must go through the ngrok URL so cookies are on the same domain. Set `APP_URL` env var to the ngrok URL.

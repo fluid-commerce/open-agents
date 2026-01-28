@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeft, User, Settings as SettingsIcon, Key } from "lucide-react";
+import {
+  ArrowLeft,
+  User,
+  Settings as SettingsIcon,
+  Key,
+  Plug,
+} from "lucide-react";
 import { AuthGuard } from "@/components/auth/auth-guard";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +30,12 @@ const sidebarItems = [
     label: "Connected Clients",
     href: "/settings/tokens",
     icon: Key,
+  },
+  {
+    id: "connectors",
+    label: "Connectors",
+    href: "/settings/connectors",
+    icon: Plug,
   },
 ];
 

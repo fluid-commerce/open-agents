@@ -1,10 +1,11 @@
-import { desc, eq } from "drizzle-orm";
+import { desc, eq, and, sql } from "drizzle-orm";
 import { db } from "./client";
 import {
   tasks,
   taskMessages,
   type NewTask,
   type NewTaskMessage,
+  type TaskSource,
 } from "./schema";
 
 export async function createTask(data: NewTask) {
@@ -94,5 +95,37 @@ export async function getTaskMessages(taskId: string) {
     where: eq(taskMessages.taskId, taskId),
     // Order by createdAt, then by id as tiebreaker for deterministic ordering
     orderBy: [taskMessages.createdAt, taskMessages.id],
+  });
+}
+
+/**
+ * Get a task by its source (Slack thread, Discord thread, etc.)
+ * Used for thread-to-task lookup to continue conversations
+ */
+export async function getTaskBySource(source: {
+  provider: TaskSource["provider"];
+  threadId: string;
+  channelId?: string;
+  workspaceId?: string;
+}) {
+  // Use JSONB operators to query the source field
+  const conditions = [
+    sql`${tasks.source}->>'provider' = ${source.provider}`,
+    sql`${tasks.source}->>'threadId' = ${source.threadId}`,
+  ];
+
+  if (source.workspaceId) {
+    conditions.push(
+      sql`${tasks.source}->>'workspaceId' = ${source.workspaceId}`,
+    );
+  }
+
+  if (source.channelId) {
+    conditions.push(sql`${tasks.source}->>'channelId' = ${source.channelId}`);
+  }
+
+  return db.query.tasks.findFirst({
+    where: and(...conditions),
+    orderBy: [desc(tasks.createdAt)],
   });
 }

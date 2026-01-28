@@ -9,6 +9,14 @@ import {
 } from "drizzle-orm/pg-core";
 import type { SandboxState } from "@open-harness/sandbox";
 
+// Task source for tracking where tasks originated
+export type TaskSource = {
+  provider: "web" | "cli" | "slack" | "discord";
+  threadId?: string; // Slack thread_ts, Discord thread ID
+  channelId?: string; // Slack channel ID, Discord channel ID
+  workspaceId?: string; // For workspace context
+};
+
 export const users = pgTable(
   "users",
   {
@@ -102,6 +110,8 @@ export const tasks = pgTable("tasks", {
   // Cached diff for offline viewing
   cachedDiff: jsonb("cached_diff"),
   cachedDiffUpdatedAt: timestamp("cached_diff_updated_at"),
+  // Source tracking (Slack thread, Discord thread, etc.)
+  source: jsonb("source").$type<TaskSource>(),
   // Timestamps
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -153,6 +163,35 @@ export const linkedAccounts = pgTable(
 
 export type LinkedAccount = typeof linkedAccounts.$inferSelect;
 export type NewLinkedAccount = typeof linkedAccounts.$inferInsert;
+
+// Connected apps for workspace-level installations (Slack, Discord, etc.)
+export const connectedApps = pgTable(
+  "connected_apps",
+  {
+    id: text("id").primaryKey(),
+    provider: text("provider", {
+      enum: ["slack", "discord", "teams"],
+    }).notNull(),
+    workspaceId: text("workspace_id").notNull(), // team_id for Slack, guild_id for Discord
+    workspaceName: text("workspace_name"), // Human-readable name
+    botToken: text("bot_token").notNull(), // Encrypted with AES-256-GCM
+    installedByUserId: text("installed_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(), // Provider-specific data (bot_user_id, etc.)
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("connected_apps_provider_workspace_idx").on(
+      table.provider,
+      table.workspaceId,
+    ),
+  ],
+);
+
+export type ConnectedApp = typeof connectedApps.$inferSelect;
+export type NewConnectedApp = typeof connectedApps.$inferInsert;
 
 // CLI tokens for device flow authentication
 export const cliTokens = pgTable(

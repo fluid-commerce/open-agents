@@ -2,9 +2,26 @@ import { type NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { generateState } from "arctic";
 
+/**
+ * Get the public URL for OAuth redirects
+ */
+function getPublicUrl(req: NextRequest): string {
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
+  if (appUrl) {
+    return appUrl.replace(/\/$/, "");
+  }
+  const forwardedHost = req.headers.get("x-forwarded-host");
+  const forwardedProto = req.headers.get("x-forwarded-proto") ?? "https";
+  if (forwardedHost) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+  return req.nextUrl.origin;
+}
+
 export async function GET(req: NextRequest): Promise<Response> {
   const clientId = process.env.NEXT_PUBLIC_GITHUB_CLIENT_ID;
-  const redirectUri = `${req.nextUrl.origin}/api/auth/github/callback`;
+  const publicUrl = getPublicUrl(req);
+  const redirectUri = `${publicUrl}/api/auth/github/callback`;
 
   if (!clientId) {
     return Response.redirect(new URL("/?error=github_not_configured", req.url));

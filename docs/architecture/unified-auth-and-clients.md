@@ -33,7 +33,7 @@ We have multiple clients that need to interact with the agent:
 | ------------------------------------ | -------------------------- | ----------------------------- |
 | **Web App**                          | Works                      | GitHub OAuth, session-based   |
 | **CLI**                              | Works (device flow)        | Proxies through web app       |
-| **Slack**                            | Not built                  | Needs to link to web user     |
+| **Slack**                            | Works (basic)              | Workspace OAuth + user linking|
 | **Future** (WhatsApp, Discord, etc.) | Not built                  | Same linking pattern as Slack |
 
 Each client needs:
@@ -113,7 +113,7 @@ users (
   id, provider, external_id, access_token, ...
 )
 
--- New: linked messaging accounts
+-- Linked messaging accounts (user-level, maps Slack user to web user)
 linked_accounts (
   id,
   user_id        -> users.id,
@@ -121,6 +121,24 @@ linked_accounts (
   external_id    (platform-specific user ID),
   workspace_id   (for Slack workspaces, etc.),
   created_at
+)
+
+-- Connected apps (workspace-level, stores bot tokens)
+connected_apps (
+  id,
+  provider          (slack, discord, teams),
+  workspace_id      (team_id for Slack, guild_id for Discord),
+  workspace_name,
+  bot_token         (encrypted with AES-256-GCM),
+  installed_by_user_id -> users.id,
+  metadata          (bot_user_id, app_id, scopes, etc.),
+  created_at, updated_at
+)
+
+-- Tasks now track their source
+tasks (
+  ...existing columns...,
+  source            (jsonb: {provider, threadId, channelId, workspaceId})
 )
 ```
 
@@ -131,11 +149,16 @@ app/api/
 ├── auth/
 │   ├── github/callback/     # GitHub OAuth (existing)
 │   ├── cli/                 # CLI auth flow
-│   └── slack/callback/      # Slack account linking
+│   └── slack/
+│       ├── install/         # Initiates Slack OAuth for bot installation
+│       └── callback/        # Slack OAuth callback, stores workspace token
 ├── ai-proxy/
 │   └── [...path]/           # Proxies AI requests for CLI
 ├── webhooks/
-│   └── slack/               # Receives Slack events
+│   └── slack/               # Receives Slack events (@mentions)
+├── connectors/
+│   ├── route.ts             # List user's connected apps
+│   └── [id]/route.ts        # Delete/disconnect a connector
 └── tasks/                   # Task management (existing)
 ```
 
@@ -150,8 +173,8 @@ app/api/
 ## Migration Steps
 
 1. [x] Create `linked_accounts` and `cli_tokens` tables
-2. [ ] Add Slack OAuth flow for account linking
-3. [ ] Implement Slack webhook handler (`/api/webhooks/slack`)
+2. [x] Add Slack OAuth flow for account linking
+3. [x] Implement Slack webhook handler (`/api/webhooks/slack`)
 4. [x] Implement AI proxy route for CLI (`/api/ai-proxy`)
 5. [x] Implement CLI auth flow
 
@@ -190,12 +213,40 @@ app/api/
 - Gateway function passed through TUI → Transport → Model selection
 - CLI requires auth; creates proxy gateway when authenticated
 
+#### Slack Integration
+- **Schema**: `connected_apps` table for workspace bot tokens, `source` column on tasks
+- **Migration**: `0012_strong_slyde.sql`
+- **Connected Apps Module** (`apps/web/lib/db/connected-apps.ts`):
+  - CRUD with AES-256-GCM encrypted bot tokens
+  - Workspace lookup by provider + workspace ID
+- **OAuth Routes**:
+  - `GET /api/auth/slack/install` - Initiates Slack OAuth with bot scopes
+  - `GET /api/auth/slack/callback` - Exchanges code, stores workspace token, links user
+- **Webhook Handler** (`apps/web/app/api/webhooks/slack/route.ts`):
+  - URL verification challenge for Slack setup
+  - HMAC signature verification
+  - `app_mention` event handling
+  - Thread-to-task mapping via `getTaskBySource()`
+- **Settings UI** (`apps/web/app/settings/connectors/`):
+  - List connected Slack workspaces
+  - "Add to Slack" button
+  - Disconnect functionality
+- **Current behavior**: Bot acknowledges @mentions, creates tasks, posts link to task
+
 ### Remaining Work
 
-#### Slack Integration (not started)
-- Slack OAuth flow for account linking (Settings → Connect Slack)
-- Webhook handler at `/api/webhooks/slack`
-- Lookup linked user when bot receives message
+#### Slack Integration (in progress)
+- [x] Slack OAuth flow for workspace installation (`/api/auth/slack/install`, `/api/auth/slack/callback`)
+- [x] `connected_apps` table for workspace-level bot tokens (encrypted)
+- [x] `source` column on tasks for tracking origin (Slack thread, etc.)
+- [x] Webhook handler at `/api/webhooks/slack` with signature verification
+- [x] Lookup linked user when bot receives message
+- [x] Settings UI at `/settings/connectors` for managing Slack workspaces
+- [x] Basic message acknowledgment and task creation
+- [ ] Full AI agent integration (stream responses back to Slack)
+- [ ] Handle Slack message length limits (4000 chars)
+- [ ] Typing indicators while processing
+- [ ] Rich formatting (code blocks, attachments)
 
 ## Open Questions
 

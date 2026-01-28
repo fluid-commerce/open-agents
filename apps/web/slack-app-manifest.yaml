@@ -1,0 +1,36 @@
+display_information:
+  name: Open Harness Agent
+  description: AI coding agent you can interact with from Slack
+  background_color: "#000000"
+
+features:
+  bot_user:
+    display_name: Open Harness
+    always_online: true
+
+oauth_config:
+  redirect_urls:
+    - https://sigrid-rustiest-almeda.ngrok-free.dev/api/auth/slack/callback
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - users:read
+
+settings:
+  event_subscriptions:
+    request_url: https://sigrid-rustiest-almeda.ngrok-free.dev/api/webhooks/slack
+    bot_events:
+      - app_mention
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

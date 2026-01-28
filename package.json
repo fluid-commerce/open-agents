@@ -32,5 +32,9 @@
     "turbo": "^2.5.4",
     "typescript": "^5"
   },
-  "packageManager": "bun@1.2.14"
+  "packageManager": "bun@1.2.14",
+  "dependencies": {
+    "@chat-adapter/slack": "^4.7.1",
+    "chat": "^4.7.1"
+  }
 }
