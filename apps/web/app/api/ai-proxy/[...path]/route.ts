@@ -32,13 +32,6 @@ async function handleProxyRequest(
   const gatewayUrl = `${AI_GATEWAY_URL}/${endpoint}${requestUrl.search}`;
   const requestId = req.headers.get("x-vercel-id");
 
-  console.error("AI proxy request:", {
-    requestId,
-    method,
-    endpoint,
-    gatewayUrl,
-  });
-
   // Extract and validate Bearer token
   const authHeader = req.headers.get("Authorization");
   if (!authHeader?.startsWith("Bearer ")) {
