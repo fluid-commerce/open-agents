@@ -892,14 +892,27 @@ export function SessionChatContent() {
   // updates the UI right away instead of waiting for the next 15s poll.
   const prevStatusRef = useRef(status);
   useEffect(() => {
-    const wasStreaming = prevStatusRef.current === "streaming";
+    const prevStatus = prevStatusRef.current;
+    const wasStreaming = prevStatus === "streaming";
+    const becameReady = status === "ready" && prevStatus !== "ready";
+    const shouldClearStreaming = status === "error" || becameReady;
     prevStatusRef.current = status;
+    if (shouldClearStreaming) {
+      void setChatStreaming(chatInfo.id, false);
+    }
     if (wasStreaming && status === "ready") {
       void requestStatusSync("force");
       void requestMarkChatRead("force");
       void refreshChats();
     }
-  }, [status, requestStatusSync, requestMarkChatRead, refreshChats]);
+  }, [
+    status,
+    chatInfo.id,
+    setChatStreaming,
+    requestStatusSync,
+    requestMarkChatRead,
+    refreshChats,
+  ]);
 
   // Track whether we've auto-attempted sandbox startup for this page load.
   const hasAutoStartedSandboxRef = useRef(false);
@@ -1415,14 +1428,12 @@ export function SessionChatContent() {
                   <span className="truncate">{c.title}</span>
                 </button>
               )}
-              {editingChatId !== c.id &&
-                c.id !== chatInfo.id &&
-                c.isStreaming && (
-                  <span
-                    className="pointer-events-none absolute top-1/2 right-3 size-2 -translate-y-1/2 rounded-full bg-white animate-pulse transition-opacity group-hover:opacity-0"
-                    aria-label="Streaming response"
-                  />
-                )}
+              {c.isStreaming && (
+                <span
+                  className="pointer-events-none absolute top-1/2 right-3 size-2 -translate-y-1/2 rounded-full bg-white animate-pulse transition-opacity group-hover:opacity-0"
+                  aria-label="Streaming response"
+                />
+              )}
               {editingChatId !== c.id &&
                 c.id !== chatInfo.id &&
                 !c.isStreaming &&
