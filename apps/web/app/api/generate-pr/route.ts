@@ -3,6 +3,7 @@ import { gateway, generateText, NoObjectGeneratedError, Output } from "ai";
 import { z } from "zod";
 import { getGitHubAccount } from "@/lib/db/accounts";
 import { getSessionById, updateSession } from "@/lib/db/sessions";
+import { getAppCoAuthorTrailer } from "@/lib/github/app-auth";
 import { getRepoToken } from "@/lib/github/get-repo-token";
 import { getUserGitHubToken } from "@/lib/github/user-token";
 import { isSandboxActive } from "@/lib/sandbox/utils";
@@ -510,7 +511,17 @@ Respond with ONLY the commit message, nothing else.`,
     // 4d. Create commit (escape shell special characters in message)
     // Using single quotes is safest, but we need to handle single quotes in the message
     // by ending the quote, adding an escaped single quote, and starting a new quote
-    const escapedMessage = commitMessage.replace(/'/g, "'\\''");
+    //
+    // Append Co-Authored-By trailer when the push uses an installation token so
+    // GitHub shows "user and bot committed" on the commit (same style as Claude Code).
+    const coAuthorTrailer =
+      repoTokenResult?.type === "installation"
+        ? getAppCoAuthorTrailer()
+        : null;
+    const fullCommitMessage = coAuthorTrailer
+      ? `${commitMessage}\n\n${coAuthorTrailer}`
+      : commitMessage;
+    const escapedMessage = fullCommitMessage.replace(/'/g, "'\\''");
     const commitResult = await sandbox.exec(
       `git commit -m '${escapedMessage}'`,
       cwd,

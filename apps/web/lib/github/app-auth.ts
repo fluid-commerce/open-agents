@@ -44,6 +44,22 @@ export function isGitHubAppConfigured(): boolean {
   );
 }
 
+/**
+ * Returns a git commit trailer for co-authoring with the GitHub App bot, e.g.:
+ *   Co-Authored-By: open-harness[bot] <12345+open-harness[bot]@users.noreply.github.com>
+ *
+ * GitHub uses this to display "user and bot committed" on commits.
+ * Returns null if the app is not configured.
+ */
+export function getAppCoAuthorTrailer(): string | null {
+  const appId = process.env.GITHUB_APP_ID;
+  const slug = process.env.NEXT_PUBLIC_GITHUB_APP_SLUG;
+  if (!appId || !slug) return null;
+  const botName = `${slug}[bot]`;
+  const botEmail = `${appId}+${botName}@users.noreply.github.com`;
+  return `Co-Authored-By: ${botName} <${botEmail}>`;
+}
+
 export async function getInstallationToken(
   installationId: number,
 ): Promise<string> {

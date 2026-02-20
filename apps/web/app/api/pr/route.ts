@@ -131,17 +131,23 @@ export async function POST(req: Request) {
   const normalizedHeadOwner = headOwner?.trim().toLowerCase();
 
   if (normalizedHeadOwner && normalizedHeadOwner !== normalizedBaseOwner) {
+    // Cross-fork PRs: prefer user token first since installation tokens are
+    // scoped to specific repos and may not cover the fork owner.
     headRef = `${headOwner}:${resolvedBranch}`;
     if (userToken) {
       tokenCandidates.push(userToken);
     }
-  } else if (tokenResult.type === "installation" && userToken) {
-    // Installation tokens can be repo-scoped and miss this target repo even when
-    // the user's token has direct write/PR permission.
-    tokenCandidates.push(userToken);
   }
 
+  // Always try the installation token (or user token if no installation) first
+  // for same-owner PRs, so the PR is created from the GitHub App installation.
   tokenCandidates.push(tokenResult.token);
+
+  // Fall back to user token if the primary token fails (e.g. repo-scoped
+  // installation tokens that don't cover this particular repo).
+  if (tokenResult.type === "installation" && userToken) {
+    tokenCandidates.push(userToken);
+  }
 
   const dedupedTokenCandidates: string[] = [];
   for (const token of tokenCandidates) {
