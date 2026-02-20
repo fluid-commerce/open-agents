@@ -25,8 +25,11 @@ Hard-won knowledge from building this codebase. When you make a mistake or disco
 
 ## Sandbox Lifecycle
 
+- Detached/background bash results may have `exitCode: null` for both successful starts and explicit tool failures; bash renderer error state must also honor `output.success === false` (not only numeric non-zero exit codes), and detached quick-failure probing should prefer a timer-vs-wait race branch over matching SDK-specific error names.
 - Creating a sandbox snapshot automatically shuts down that sandbox; lifecycle plans and implementations must treat snapshotting as a stop/hibernate transition, not a non-disruptive backup.
 - Vercel `sdk.domain(port)` throws when a sandbox has no route for that port (common on some restored/reconnected sandboxes); environment/prompt metadata should guard per-port URL generation instead of assuming every configured port is routable.
+- Hybrid post-handoff prompt metadata uses delegated Vercel `environmentDetails`; never hardcode host resolution to port `80` or prompts can show `Sandbox host: undefined` even when declared preview ports (for example `3000`) are routable.
+- Hybrid/Vercel handoff prompt metadata should derive host/preview URLs from Vercel SDK `routes` (live route data), not only from locally passed `ports`; reconnect paths may omit `ports` even though routes are available.
 - Vercel sandbox creation has a hard timeout limit of `18_000_000ms`; if you add an internal timeout buffer before calling the SDK, clamp proactive timeout so `timeout + buffer` never exceeds that API limit.
 - In serverless environments, lifecycle checks that only run inline during request handlers are not durable; long-gap sandbox lifecycle actions must be scheduled with a durable workflow run (`start(...)` + `sleep(...)`) so they execute without a connected client.
 - Vercel `snapshot()` may return `422 sandbox_snapshotting` when another snapshot is already in progress; lifecycle code should treat this as an idempotent/in-progress condition and reconcile state instead of marking lifecycle as failed.

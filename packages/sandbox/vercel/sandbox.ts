@@ -17,6 +17,11 @@ const TIMEOUT_BUFFER_MS = 30_000; // 30 seconds buffer for beforeStop hook
 const MAX_SDK_TIMEOUT_MS = 18_000_000; // Vercel API limit: 5 hours
 const MAX_PROACTIVE_TIMEOUT_MS = MAX_SDK_TIMEOUT_MS - TIMEOUT_BUFFER_MS;
 const DEFAULT_RECONNECT_TIMEOUT_MS = 300_000; // 5 minutes default timeout for reconnected sandboxes
+const DETACHED_QUICK_FAILURE_WINDOW_MS = 2_000;
+
+interface SandboxRouteLike {
+  port: number;
+}
 
 /**
  * Vercel Sandbox implementation using the @vercel/sandbox SDK.
@@ -190,17 +195,35 @@ export class VercelSandbox implements Sandbox {
    * which returns the correct subdomain-based URL for that port.
    */
   get host(): string | undefined {
-    try {
-      const domainUrl = this.sdk.domain(80);
-      return new URL(domainUrl).host;
-    } catch {
-      return undefined;
+    const candidatePorts = this.getCandidatePorts();
+
+    for (const port of candidatePorts) {
+      try {
+        const domainUrl = this.sdk.domain(port);
+        return new URL(domainUrl).host;
+      } catch {
+        // Try next declared port; some restored sandboxes may not expose all ports.
+      }
     }
+
+    // Fallback for cases where no ports were declared but default HTTP route exists.
+    if (!candidatePorts.includes(80)) {
+      try {
+        const domainUrl = this.sdk.domain(80);
+        return new URL(domainUrl).host;
+      } catch {
+        return undefined;
+      }
+    }
+
+    return undefined;
   }
 
   get environmentDetails(): string {
+    const host = this.host;
+    const previewPorts = this.getPreviewPorts();
     const portPreviewLines =
-      this._ports
+      previewPorts
         ?.map((port) => {
           try {
             const url = this.domain(port);
@@ -215,6 +238,12 @@ export class VercelSandbox implements Sandbox {
       ? `\n- Dev server preview URLs (start a server on one of these ports, then share the URL with the user):\n${portPreviewLines.join("\n")}`
       : "";
 
+    const hostLine = host ? `\n- Sandbox host: ${host}` : "";
+    const runtimeEnvLine =
+      host || previewPorts.length > 0
+        ? "\n- Runtime env vars for previews are injected into commands: SANDBOX_HOST and SANDBOX_URL_<PORT> (for routable ports)"
+        : "";
+
     return `- Ephemeral sandbox - all work is lost unless committed and pushed to git
 - Default workflow: create a new branch, commit changes, push, and open a PR (since the sandbox is ephemeral, this ensures work is preserved)
 - Git is already configured (user, email, remote auth) - no setup or verification needed
@@ -223,7 +252,57 @@ export class VercelSandbox implements Sandbox {
   curl -X POST -H "Authorization: token $GITHUB_TOKEN" -H "Accept: application/vnd.github.v3+json" https://api.github.com/repos/OWNER/REPO/pulls -d '{"title":"...","head":"branch","base":"main","body":"..."}'
 - Node.js runtime with npm/pnpm available
 - Installing Bun: run \`curl -fsSL https://bun.com/install | bash\`, then \`echo 'export PATH="$HOME/.bun/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc\`, then verify with \`bun --version\`
-- Sandbox host: ${this.host}${portLines}`;
+- This sandbox already runs on Vercel; do not suggest deploying to Vercel just to obtain a shareable preview link
+${hostLine}${portLines}${runtimeEnvLine}`;
+  }
+
+  private getRoutePorts(): number[] {
+    const routes = (this.sdk as { routes?: SandboxRouteLike[] }).routes;
+    if (!Array.isArray(routes)) {
+      return [];
+    }
+
+    return routes
+      .map((route) => route.port)
+      .filter((port) => Number.isInteger(port) && port > 0);
+  }
+
+  private getPreviewPorts(): number[] {
+    return Array.from(new Set([...(this._ports ?? []), ...this.getRoutePorts()]));
+  }
+
+  private getCandidatePorts(): number[] {
+    return Array.from(new Set([...this.getPreviewPorts(), 80]));
+  }
+
+  private getRuntimePreviewEnv(): Record<string, string> {
+    const runtimeEnv: Record<string, string> = {};
+    const host = this.host;
+    if (host) {
+      runtimeEnv.SANDBOX_HOST = host;
+    }
+
+    for (const port of this.getPreviewPorts()) {
+      try {
+        runtimeEnv[`SANDBOX_URL_${port}`] = this.domain(port);
+      } catch {
+        // Skip unroutable ports
+      }
+    }
+
+    return runtimeEnv;
+  }
+
+  private getCommandEnv(): Record<string, string> | undefined {
+    const runtimePreviewEnv = this.getRuntimePreviewEnv();
+    if (!this.env && Object.keys(runtimePreviewEnv).length === 0) {
+      return undefined;
+    }
+
+    return {
+      ...(this.env ?? {}),
+      ...runtimePreviewEnv,
+    };
   }
 
   /**
@@ -576,7 +655,7 @@ export class VercelSandbox implements Sandbox {
       const result = await this.sdk.runCommand({
         cmd: "bash",
         args: ["-c", `cd "${cwd}" && ${command}`],
-        env: this.env,
+        env: this.getCommandEnv(),
         signal: AbortSignal.timeout(timeoutMs),
       });
 
@@ -627,9 +706,48 @@ export class VercelSandbox implements Sandbox {
     const result = await this.sdk.runCommand({
       cmd: "bash",
       args: ["-c", `cd "${cwd}" && ${command}`],
-      env: this.env,
+      env: this.getCommandEnv(),
       detached: true,
     });
+
+    const abortController = new AbortController();
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutResult = new Promise<{ kind: "timeout" }>((resolve) => {
+      timeoutId = setTimeout(() => {
+        abortController.abort();
+        resolve({ kind: "timeout" });
+      }, DETACHED_QUICK_FAILURE_WINDOW_MS);
+    });
+
+    const waitResult = result
+      .wait({ signal: abortController.signal })
+      .then((finished) => ({ kind: "finished", finished }) as const)
+      .catch((error: unknown) => ({ kind: "error", error }) as const);
+
+    const quickProbe = await Promise.race([waitResult, timeoutResult]);
+
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+
+    if (quickProbe.kind === "timeout") {
+      return { commandId: result.cmdId };
+    }
+
+    if (quickProbe.kind === "error") {
+      throw quickProbe.error;
+    }
+
+    if (quickProbe.finished.exitCode !== 0) {
+      const stderr = await quickProbe.finished.stderr();
+      const trimmedStderr = stderr.trim();
+      const stderrSnippet = trimmedStderr
+        ? trimmedStderr.slice(0, MAX_OUTPUT_LENGTH)
+        : "<no stderr>";
+      throw new Error(
+        `Background command exited with code ${quickProbe.finished.exitCode}. stderr:\n${stderrSnippet}`,
+      );
+    }
 
     return { commandId: result.cmdId };
   }

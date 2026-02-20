@@ -10,6 +10,7 @@ import { getDotColor, ToolSpinner } from "./shared";
 export function BashRenderer({ part, state }: ToolRendererProps<"tool-bash">) {
   const isInputReady = part.state !== "input-streaming";
   const command = isInputReady ? String(part.input?.command ?? "") : "";
+  const isDetached = isInputReady && part.input?.detached === true;
   const exitCode =
     part.state === "output-available" ? part.output?.exitCode : undefined;
   const stdout =
@@ -17,7 +18,9 @@ export function BashRenderer({ part, state }: ToolRendererProps<"tool-bash">) {
   const stderr =
     part.state === "output-available" ? part.output?.stderr : undefined;
   const hasOutput = stdout || stderr;
-  const isError = exitCode !== undefined && exitCode !== 0;
+  const toolFailed =
+    part.state === "output-available" && part.output?.success === false;
+  const isError = toolFailed || (typeof exitCode === "number" && exitCode !== 0);
 
   // Combine stdout and stderr, show last 3 lines
   const combinedOutput = [stdout, stderr].filter(Boolean).join("\n").trim();
@@ -67,6 +70,7 @@ export function BashRenderer({ part, state }: ToolRendererProps<"tool-bash">) {
         <text fg="gray">(</text>
         <text fg="white">{displayCommand}</text>
         <text fg="gray">)</text>
+        {isDetached && <text fg={PRIMARY_COLOR}> [detached]</text>}
       </box>
 
       {/* Show Running/Waiting status for approval-requested tools */}
@@ -88,7 +92,11 @@ export function BashRenderer({ part, state }: ToolRendererProps<"tool-bash">) {
             {isError && (
               <box flexDirection="row">
                 <text fg="gray">└ </text>
-                <text fg="red">Error: Exit code {exitCode}</text>
+                <text fg="red">
+                  {typeof exitCode === "number"
+                    ? `Error: Exit code ${exitCode}`
+                    : "Error"}
+                </text>
               </box>
             )}
             {hasOutput ? (
