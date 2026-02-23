@@ -9,15 +9,20 @@ import {
 import type { AnthropicLanguageModelOptions } from "@ai-sdk/anthropic";
 import { devToolsMiddleware } from "@ai-sdk/devtools";
 
-const anthropicMiddleware = defaultSettingsMiddleware({
-  settings: {
-    providerOptions: {
-      anthropic: {
-        effort: "medium",
-      } satisfies AnthropicLanguageModelOptions,
-    },
-  },
-});
+// Models with 4.5+ support adaptive thinking with effort control.
+// Older models use the legacy extended thinking API with a budget.
+function getAnthropicSettings(modelId: string): AnthropicLanguageModelOptions {
+  if (modelId.includes("4.6")) {
+    return {
+      effort: "medium",
+      thinking: { type: "adaptive" },
+    };
+  }
+
+  return {
+    thinking: { type: "enabled", budgetTokens: 8000 },
+  };
+}
 
 export interface GatewayConfig {
   baseURL: string;
@@ -44,7 +49,14 @@ export function gateway(
 
   // Apply anthropic middleware for anthropic models
   if (modelId.startsWith("anthropic/")) {
-    model = wrapLanguageModel({ model, middleware: anthropicMiddleware });
+    const middleware = defaultSettingsMiddleware({
+      settings: {
+        providerOptions: {
+          anthropic: getAnthropicSettings(modelId),
+        },
+      },
+    });
+    model = wrapLanguageModel({ model, middleware });
   }
 
   // Apply devtools middleware if requested
