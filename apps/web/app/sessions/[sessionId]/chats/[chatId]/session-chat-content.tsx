@@ -71,7 +71,6 @@ import { useSessionChats } from "@/hooks/use-session-chats";
 import { useSlashCommands } from "@/hooks/use-slash-commands";
 import {
   isChatInFlight as isChatInFlightStatus,
-  shouldRefreshAfterReadyTransition,
   shouldShowThinkingIndicator,
 } from "@/lib/chat-streaming-state";
 import { ACCEPT_IMAGE_TYPES, isValidImageType } from "@/lib/image-utils";
@@ -108,6 +107,12 @@ const Streamdown = dynamic(
 
 const STREAM_RECOVERY_STALL_MS = 4_000;
 const STREAM_RECOVERY_MIN_INTERVAL_MS = 8_000;
+const CHAT_IN_FLIGHT_SETTLE_MS = 300;
+const STREAMDOWN_FADE_IN_ANIMATION = {
+  animation: "fadeIn",
+  duration: 250,
+  easing: "ease-out",
+} as const;
 
 const emptySubscribe = () => () => {};
 
@@ -767,6 +772,38 @@ export function SessionChatContent() {
     [hasMounted, messages, initialMessages],
   );
   const isChatInFlight = isChatInFlightStatus(status);
+  const [isChatInFlightSettled, setIsChatInFlightSettled] =
+    useState(isChatInFlight);
+  const chatInFlightSettleTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+
+  useEffect(() => {
+    if (chatInFlightSettleTimeoutRef.current) {
+      clearTimeout(chatInFlightSettleTimeoutRef.current);
+      chatInFlightSettleTimeoutRef.current = null;
+    }
+
+    if (isChatInFlight) {
+      setIsChatInFlightSettled(true);
+      return;
+    }
+
+    // Avoid visual flicker when status briefly bounces to ready between
+    // consecutive tool-loop stream steps.
+    chatInFlightSettleTimeoutRef.current = setTimeout(() => {
+      chatInFlightSettleTimeoutRef.current = null;
+      setIsChatInFlightSettled(false);
+    }, CHAT_IN_FLIGHT_SETTLE_MS);
+
+    return () => {
+      if (chatInFlightSettleTimeoutRef.current) {
+        clearTimeout(chatInFlightSettleTimeoutRef.current);
+        chatInFlightSettleTimeoutRef.current = null;
+      }
+    };
+  }, [isChatInFlight]);
+
   const lastMessage = useMemo(
     () => renderMessages[renderMessages.length - 1],
     [renderMessages],
@@ -784,10 +821,6 @@ export function SessionChatContent() {
         : false,
     [lastMessage],
   );
-  const hasAssistantRenderableContentRef = useRef(
-    hasAssistantRenderableContent,
-  );
-  hasAssistantRenderableContentRef.current = hasAssistantRenderableContent;
   const hasSeenAssistantRenderableContentRef = useRef(false);
   const [hasPendingResponse, setHasPendingResponse] = useState(false);
 
@@ -912,10 +945,10 @@ export function SessionChatContent() {
         message,
         groups,
         isStreaming:
-          isChatInFlight && messageIndex === renderMessages.length - 1,
+          isChatInFlightSettled && messageIndex === renderMessages.length - 1,
       };
     });
-  }, [renderMessages, isChatInFlight]);
+  }, [renderMessages, isChatInFlightSettled]);
   const [isUpdatingModel, setIsUpdatingModel] = useState(false);
   const lastStatusSyncAtRef = useRef(0);
   const statusSyncInFlightRef = useRef(false);
@@ -1037,7 +1070,7 @@ export function SessionChatContent() {
   }, [requestMarkChatRead]);
 
   // Keep the recovery logic in a ref so event-listener effects never
-  // churn during streaming.  The ref is updated on every render (cheap) while
+  // churn during streaming. The ref is updated on every render (cheap) while
   // the stable wrapper below keeps a constant identity for effects.
   const maybeRecoverStreamRef = useRef(() => {});
   maybeRecoverStreamRef.current = () => {
@@ -1049,55 +1082,58 @@ export function SessionChatContent() {
       return;
     }
 
-    if (status !== "error") {
-      if (!isChatInFlight || hasAssistantRenderableContent) {
-        return;
-      }
-
-      const startedAt = inFlightStartedAtRef.current;
-      if (startedAt === null || now - startedAt < STREAM_RECOVERY_STALL_MS) {
-        return;
-      }
-      if (streamRecoveryProbeInFlightRef.current) {
-        return;
-      }
-
-      streamRecoveryProbeInFlightRef.current = true;
+    if (status === "error") {
       lastStreamRecoveryAtRef.current = now;
-
-      void (async () => {
-        try {
-          const response = await fetch(`/api/sessions/${session.id}/chats`, {
-            cache: "no-store",
-          });
-          if (!response.ok) {
-            return;
-          }
-
-          const payload: unknown = await response.json();
-          if (!isChatStreamingProbeResponse(payload)) {
-            return;
-          }
-
-          const serverChat = payload.chats.find(
-            (chat) => chat.id === chatInfo.id,
-          );
-          if (!serverChat?.isStreaming) {
-            return;
-          }
-
-          retryChatStream({ auto: true, strategy: "soft" });
-        } catch {
-          // Ignore transient probe failures and try again on next interval.
-        } finally {
-          streamRecoveryProbeInFlightRef.current = false;
-        }
-      })();
+      retryChatStream({ auto: true });
       return;
     }
 
+    // Only run "silent stream" recovery while still in submitted state.
+    // During active streaming, reconnecting can replay recent chunks and cause
+    // visible jank even though the connection is healthy.
+    if (status !== "submitted" || hasAssistantRenderableContent) {
+      return;
+    }
+
+    const startedAt = inFlightStartedAtRef.current;
+    if (startedAt === null || now - startedAt < STREAM_RECOVERY_STALL_MS) {
+      return;
+    }
+    if (streamRecoveryProbeInFlightRef.current) {
+      return;
+    }
+
+    streamRecoveryProbeInFlightRef.current = true;
     lastStreamRecoveryAtRef.current = now;
-    retryChatStream({ auto: true });
+
+    void (async () => {
+      try {
+        const response = await fetch(`/api/sessions/${session.id}/chats`, {
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          return;
+        }
+
+        const payload: unknown = await response.json();
+        if (!isChatStreamingProbeResponse(payload)) {
+          return;
+        }
+
+        const serverChat = payload.chats.find(
+          (chat) => chat.id === chatInfo.id,
+        );
+        if (!serverChat?.isStreaming) {
+          return;
+        }
+
+        retryChatStream({ auto: true, strategy: "soft" });
+      } catch {
+        // Ignore transient probe failures and try again on next interval.
+      } finally {
+        streamRecoveryProbeInFlightRef.current = false;
+      }
+    })();
   };
 
   // Stable identity wrapper – safe to use in effect dependency arrays without
@@ -1444,16 +1480,6 @@ export function SessionChatContent() {
       void refreshChats();
       // After a message completes, check branch and detect existing PRs
       void checkBranchAndPr();
-      if (
-        shouldRefreshAfterReadyTransition({
-          prevStatus,
-          status,
-          hasAssistantRenderableContent:
-            hasAssistantRenderableContentRef.current,
-        })
-      ) {
-        router.refresh();
-      }
     }
   }, [
     status,
@@ -1465,7 +1491,6 @@ export function SessionChatContent() {
     requestMarkChatRead,
     refreshChats,
     checkBranchAndPr,
-    router,
   ]);
 
   // Track whether we've auto-attempted sandbox startup for this page load.
@@ -2215,11 +2240,11 @@ export function SessionChatContent() {
                           ) : (
                             <div className="min-w-0 w-full overflow-hidden">
                               <Streamdown
-                                animated={{
-                                  animation: "fadeIn",
-                                  duration: 250,
-                                  easing: "ease-out",
-                                }}
+                                animated={
+                                  isMessageStreaming
+                                    ? STREAMDOWN_FADE_IN_ANIMATION
+                                    : undefined
+                                }
                                 mode={
                                   isMessageStreaming ? "streaming" : "static"
                                 }
