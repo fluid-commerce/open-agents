@@ -3,8 +3,6 @@
 import { toRelativePath } from "@open-harness/shared/lib/tool-state";
 import { MultiFileDiff } from "@pierre/diffs/react";
 import { Loader2 } from "lucide-react";
-import type React from "react";
-import { useState } from "react";
 import type { ToolRendererProps } from "@/app/lib/render-tool";
 import { defaultDiffOptions } from "@/lib/diffs-config";
 import { cn } from "@/lib/utils";
@@ -17,7 +15,6 @@ export function EditRenderer({
   onApprove,
   onDeny,
 }: ToolRendererProps<"tool-edit">) {
-  const [isExpanded, setIsExpanded] = useState(false);
   const input = part.input;
   const rawFilePath = input?.filePath ?? "...";
   const filePath =
@@ -47,39 +44,9 @@ export function EditRenderer({
           ? "bg-red-500"
           : "bg-green-500";
 
-  // Has expandable content if strings are substantial
-  const hasExpandableContent = oldString.length > 200 || newString.length > 200;
-
-  const handleClick = () => {
-    if (hasExpandableContent) {
-      setIsExpanded(!isExpanded);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      if (hasExpandableContent) {
-        setIsExpanded(!isExpanded);
-      }
-    }
-  };
-
   return (
     <div className="my-2 rounded-lg border border-border bg-card p-3">
-      <div
-        className={cn(
-          "flex min-w-0 items-center gap-2",
-          hasExpandableContent && "cursor-pointer",
-        )}
-        {...(hasExpandableContent && {
-          onClick: handleClick,
-          onKeyDown: handleKeyDown,
-          role: "button",
-          tabIndex: 0,
-          "aria-expanded": isExpanded,
-        })}
-      >
+      <div className="flex min-w-0 items-center gap-2">
         {mergedState.interrupted ? (
           <span className="inline-block h-2 w-2 rounded-full border border-yellow-500" />
         ) : mergedState.running ? (
@@ -115,53 +82,13 @@ export function EditRenderer({
           </div>
         )}
 
-      {/* Collapsed preview */}
-      {!isExpanded &&
-        showDiff &&
-        !mergedState.approvalRequested &&
-        !mergedState.denied && (
-          <>
-            <div className="ml-5 mt-2 max-h-40 overflow-hidden">
-              <MultiFileDiff
-                oldFile={{ name: rawFilePath, contents: oldString }}
-                newFile={{ name: rawFilePath, contents: newString }}
-                options={defaultDiffOptions}
-              />
-            </div>
-          </>
-        )}
-
-      {/* Expanded full diff */}
-      {isExpanded && showDiff && !mergedState.denied && (
-        <div className="mt-3 space-y-3 border-t border-border pt-3">
-          {/* Full diff view */}
-          <div className="max-h-96 overflow-auto">
-            <MultiFileDiff
-              oldFile={{ name: rawFilePath, contents: oldString }}
-              newFile={{ name: rawFilePath, contents: newString }}
-              options={defaultDiffOptions}
-            />
-          </div>
-
-          {/* Raw old/new strings for debugging */}
-          <div className="grid gap-3 md:grid-cols-2">
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                Old String
-              </div>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-red-950/20 p-2 font-mono text-xs text-foreground">
-                {oldString || "(empty)"}
-              </pre>
-            </div>
-            <div>
-              <div className="mb-1 text-xs font-medium text-muted-foreground">
-                New String
-              </div>
-              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded border border-border bg-green-950/20 p-2 font-mono text-xs text-foreground">
-                {newString || "(empty)"}
-              </pre>
-            </div>
-          </div>
+      {showDiff && !mergedState.approvalRequested && !mergedState.denied && (
+        <div className="ml-5 mt-2 max-h-40 overflow-hidden">
+          <MultiFileDiff
+            oldFile={{ name: rawFilePath, contents: oldString }}
+            newFile={{ name: rawFilePath, contents: newString }}
+            options={defaultDiffOptions}
+          />
         </div>
       )}
 
