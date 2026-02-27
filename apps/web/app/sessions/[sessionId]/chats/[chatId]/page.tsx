@@ -4,7 +4,7 @@ import type { WebAgentUIMessage } from "@/app/types";
 import { DiffsProvider } from "@/components/diffs-provider";
 import { getChatById, getChatMessages } from "@/lib/db/sessions";
 import { getSessionByIdCached } from "@/lib/db/sessions-cache";
-import { fetchAvailableLanguageModelsWithContext } from "@/lib/models-with-context";
+import { fetchAvailableLanguageModels } from "@/lib/models-with-context";
 import { getServerSession } from "@/lib/session/get-server-session";
 import { SessionChatContent } from "./session-chat-content";
 import { SessionChatProvider } from "./session-chat-context";
@@ -28,7 +28,7 @@ const OPTIMISTIC_CHAT_RETRY_ATTEMPTS = 50;
 
 async function getInitialModels() {
   try {
-    return await fetchAvailableLanguageModelsWithContext();
+    return await fetchAvailableLanguageModels();
   } catch {
     return [];
   }
@@ -110,6 +110,7 @@ export default async function SessionChatPage({
         session={sessionRecord}
         chat={chat}
         initialMessages={initialMessages}
+        initialModels={initialModels}
       >
         <SessionChatContent initialModels={initialModels} />
       </SessionChatProvider>

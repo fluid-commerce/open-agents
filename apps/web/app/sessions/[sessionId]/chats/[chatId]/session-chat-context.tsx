@@ -286,6 +286,7 @@ type SessionChatProviderProps = {
   session: Session;
   chat: Chat;
   initialMessages: WebAgentUIMessage[];
+  initialModels: ModelsResponse["models"];
   children: ReactNode;
 };
 
@@ -297,6 +298,7 @@ export function SessionChatProvider({
   session: initialSession,
   chat: initialChat,
   initialMessages,
+  initialModels,
   children,
 }: SessionChatProviderProps) {
   const { mutate } = useSWRConfig();
@@ -306,9 +308,13 @@ export function SessionChatProvider({
   const [hasSnapshotState, setHasSnapshotState] = useState<boolean>(
     !!initialSession.snapshotUrl,
   );
+  const hasInitialModels = initialModels.length > 0;
   const { data: modelsResponse } = useSWR<ModelsResponse>(
     "/api/models",
     fetcher,
+    {
+      fallbackData: hasInitialModels ? { models: initialModels } : undefined,
+    },
   );
   const contextLimit = useMemo(
     () =>

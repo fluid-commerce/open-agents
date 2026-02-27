@@ -95,15 +95,18 @@ function addContextWindow(
   return { ...model, context_window: contextLimit };
 }
 
+export async function fetchAvailableLanguageModels(): Promise<AvailableModel[]> {
+  const { models } = await gateway.getAvailableModels();
+  return models.filter((model) => model.modelType === "language");
+}
+
 export async function fetchAvailableLanguageModelsWithContext(): Promise<
   AvailableModel[]
 > {
-  const [{ models }, modelsDevContextMap] = await Promise.all([
-    gateway.getAvailableModels(),
+  const [models, modelsDevContextMap] = await Promise.all([
+    fetchAvailableLanguageModels(),
     fetchModelsDevContextMap(),
   ]);
 
-  return models
-    .filter((model) => model.modelType === "language")
-    .map((model) => addContextWindow(model, modelsDevContextMap));
+  return models.map((model) => addContextWindow(model, modelsDevContextMap));
 }
