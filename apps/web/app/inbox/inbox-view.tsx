@@ -10,10 +10,12 @@ import { DiffsProvider } from "@/components/diffs-provider";
 import { useInbox } from "@/hooks/use-inbox";
 import { useSession } from "@/hooks/use-session";
 import { defaultDiffOptions } from "@/lib/diffs-config";
+import { streamdownPlugins } from "@/lib/streamdown-config";
 import { cn } from "@/lib/utils";
 import { PatchDiff } from "@pierre/diffs/react";
 import {
   ArrowLeft,
+  ArrowUp,
   CheckSquare,
   ChevronDown,
   ChevronRight,
@@ -26,9 +28,16 @@ import {
   MessageSquareWarning,
   Square,
 } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import "streamdown/styles.css";
+
+const Streamdown = dynamic(
+  () => import("streamdown").then((m) => m.Streamdown),
+  { ssr: false },
+);
 
 type FilterTab = "all" | "needs_input" | "needs_review" | "working";
 
@@ -384,6 +393,31 @@ function InboxItemDetail({
   item: InboxItem;
   onNavigate: () => void;
 }) {
+  const router = useRouter();
+  const [replyText, setReplyText] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const handleSubmitReply = useCallback(() => {
+    const trimmed = replyText.trim();
+    if (!trimmed || !item.chatId) return;
+
+    // Navigate to the session chat with the prompt pre-filled.
+    // The chat page will pick this up and auto-send it.
+    const params = new URLSearchParams({ prompt: trimmed });
+    router.push(
+      `/sessions/${item.sessionId}/chats/${item.chatId}?${params.toString()}`,
+    );
+  }, [replyText, item.sessionId, item.chatId, router]);
+
+  // Auto-resize textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    textarea.style.height = "0";
+    const newHeight = Math.min(textarea.scrollHeight, 120);
+    textarea.style.height = `${newHeight}px`;
+  }, [replyText]);
+
   return (
     <div className="flex h-full flex-col">
       {/* Detail header */}
@@ -472,18 +506,20 @@ function InboxItemDetail({
             </div>
           ) : null}
 
-          {/* Agent response (shown first before diff) */}
+          {/* Agent response rendered with Streamdown */}
           {item.latestResponse ? (
             <div>
               <h3 className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 Agent response
               </h3>
-              <div className="rounded-lg border border-border bg-muted/30 p-4">
-                <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-                  {item.latestResponse.length > 800
-                    ? `${item.latestResponse.slice(0, 800)}…`
-                    : item.latestResponse}
-                </p>
+              <div className="min-w-0 overflow-hidden">
+                <Streamdown
+                  mode="static"
+                  isAnimating={false}
+                  plugins={streamdownPlugins}
+                >
+                  {item.latestResponse}
+                </Streamdown>
               </div>
             </div>
           ) : null}
@@ -496,6 +532,43 @@ function InboxItemDetail({
           ) : null}
         </div>
       </div>
+
+      {/* Reply input */}
+      {item.chatId ? (
+        <div className="shrink-0 border-t border-border px-6 py-3">
+          <div className="relative flex items-end gap-2">
+            <textarea
+              ref={textareaRef}
+              value={replyText}
+              onChange={(e) => setReplyText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSubmitReply();
+                }
+              }}
+              placeholder="Reply to this session..."
+              rows={1}
+              className="min-h-[38px] flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            />
+            <button
+              type="button"
+              onClick={handleSubmitReply}
+              disabled={!replyText.trim()}
+              className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-40 disabled:hover:bg-primary"
+            >
+              <ArrowUp className="h-4 w-4" />
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-muted-foreground/60">
+            Sends you to the session with your message.{" "}
+            <kbd className="rounded border border-border px-1 py-0.5 font-mono text-[10px]">
+              ↵
+            </kbd>{" "}
+            to send
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

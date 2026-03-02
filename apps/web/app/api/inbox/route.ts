@@ -41,6 +41,7 @@ export interface InboxDiff {
 
 export interface InboxItem {
   sessionId: string;
+  chatId: string | null;
   sessionTitle: string;
   repoOwner: string | null;
   repoName: string | null;
@@ -228,6 +229,7 @@ export async function GET() {
     if (!latestChat) {
       inboxItems.push({
         sessionId: s.id,
+        chatId: null,
         sessionTitle: s.title,
         repoOwner: s.repoOwner,
         repoName: s.repoName,
@@ -316,6 +318,7 @@ export async function GET() {
 
     inboxItems.push({
       sessionId: s.id,
+      chatId: latestChat.id,
       sessionTitle: s.title,
       repoOwner: s.repoOwner,
       repoName: s.repoName,
