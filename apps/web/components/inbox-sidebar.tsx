@@ -10,6 +10,10 @@ import {
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  getValidRenameTitle,
+  isRenameSaveDisabled,
+} from "@/components/inbox-sidebar-rename";
 import { NewSessionDialog } from "@/components/new-session-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -314,21 +318,31 @@ export function InboxSidebar({
       return;
     }
 
-    const trimmed = renameTitle.trim();
-    if (!trimmed || trimmed === renameDialogSession.title) {
+    const nextTitle = getValidRenameTitle({
+      draftTitle: renameTitle,
+      originalTitle: renameDialogSession.title,
+    });
+    if (!nextTitle) {
       closeRenameDialog();
       return;
     }
 
     setRenaming(true);
     try {
-      await onRenameSession(renameDialogSession.id, trimmed);
+      await onRenameSession(renameDialogSession.id, nextTitle);
       closeRenameDialog();
     } catch (err) {
       console.error("Failed to rename session:", err);
       setRenaming(false);
     }
   }, [closeRenameDialog, onRenameSession, renameDialogSession, renameTitle]);
+
+  const isSaveDisabled = isRenameSaveDisabled({
+    renaming,
+    hasTargetSession: Boolean(renameDialogSession),
+    draftTitle: renameTitle,
+    originalTitle: renameDialogSession?.title ?? null,
+  });
 
   return (
     <>
@@ -459,15 +473,7 @@ export function InboxSidebar({
               >
                 Cancel
               </Button>
-              <Button
-                type="submit"
-                disabled={
-                  renaming ||
-                  !renameDialogSession ||
-                  !renameTitle.trim() ||
-                  renameTitle.trim() === renameDialogSession.title
-                }
-              >
+              <Button type="submit" disabled={isSaveDisabled}>
                 {renaming ? "Saving..." : "Save"}
               </Button>
             </DialogFooter>
