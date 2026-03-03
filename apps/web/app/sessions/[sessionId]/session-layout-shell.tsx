@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo } from "react";
 import { InboxSidebar } from "@/components/inbox-sidebar";
+import { useBackgroundChatNotifications } from "@/hooks/use-background-chat-notifications";
 import {
   Sidebar,
   SidebarContent,
@@ -113,6 +114,13 @@ export function SessionLayoutShell({
       router.push(`/sessions/${sessionId}/chats/${chatId}`);
     },
     [router, sessionId],
+  );
+
+  // Detect when a background session finishes streaming and show a toast.
+  useBackgroundChatNotifications(
+    sessionsWithStreaming,
+    sessionId,
+    handleSessionClick,
   );
 
   const sidebarContent = (
