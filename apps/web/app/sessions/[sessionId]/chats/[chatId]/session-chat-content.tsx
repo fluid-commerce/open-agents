@@ -87,7 +87,10 @@ import { useAudioRecording } from "@/hooks/use-audio-recording";
 import { useFileSuggestions } from "@/hooks/use-file-suggestions";
 import { useImageAttachments } from "@/hooks/use-image-attachments";
 import { useScrollToBottom } from "@/hooks/use-scroll-to-bottom";
-import { releaseStreamingOverlay, useSessionChats } from "@/hooks/use-session-chats";
+import {
+  releaseStreamingOverlay,
+  useSessionChats,
+} from "@/hooks/use-session-chats";
 import { useSlashCommands } from "@/hooks/use-slash-commands";
 import {
   isChatInFlight as isChatInFlightStatus,
