@@ -1,4 +1,4 @@
-# Open Harness
+# Testing
 
 ## Setup
 
