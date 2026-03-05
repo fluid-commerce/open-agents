@@ -51,6 +51,7 @@ interface CreateSandboxRequest {
 
 type VercelEnvResolutionStatus =
   | "resolved"
+  | "token_only"
   | "skipped_reconnect"
   | "no_repo_context"
   | "no_vercel_auth"
@@ -68,8 +69,8 @@ interface VercelEnvResolutionMeta {
     scopesSucceeded: number;
     scopesFailed: number;
     teamCount: number;
-    projectsFound: number;
-    repoUrlUsed: string;
+    totalProjectsSeen: number;
+    matchedProjectCount: number;
   };
 }
 
@@ -169,31 +170,40 @@ export async function POST(req: Request) {
     ...(repoName ? { repoName } : {}),
   };
 
-  if (!providedSandboxId && repoOwner && repoName) {
+  if (!providedSandboxId) {
     try {
       const vercelToken = await getUserVercelToken(session.user.id);
       if (!vercelToken) {
         vercelEnvResolution.status = "no_vercel_auth";
       } else {
-        const result = await resolveVercelProject({
-          vercelToken,
-          repoOwner,
-          repoName,
-        });
-        vercelEnvResolution.debug = result.debug;
-        if (result.ok) {
-          env.VERCEL_TOKEN = vercelToken;
-          env.VERCEL_PROJECT_ID = result.project.projectId;
-          if (result.project.orgId) {
-            env.VERCEL_ORG_ID = result.project.orgId;
+        // Always inject the token so the Vercel CLI can be used inside the
+        // sandbox (e.g. `vc link --token $VERCEL_TOKEN`, `vc env pull`).
+        env.VERCEL_TOKEN = vercelToken;
+
+        if (repoOwner && repoName) {
+          // Best-effort: try to resolve the project so we can also inject
+          // VERCEL_PROJECT_ID / VERCEL_ORG_ID for a fully non-interactive
+          // `vc link --yes --team <slug> --project <id>` experience.
+          const result = await resolveVercelProject({
+            vercelToken,
+            repoOwner,
+            repoName,
+          });
+          vercelEnvResolution.debug = result.debug;
+          if (result.ok) {
+            env.VERCEL_PROJECT_ID = result.project.projectId;
+            if (result.project.orgId) {
+              env.VERCEL_ORG_ID = result.project.orgId;
+            }
+            vercelEnvResolution.status = "resolved";
+          } else {
+            // Token is still injected — the CLI can be used manually.
+            vercelEnvResolution.status = result.reason;
+            vercelEnvResolution.message = result.message;
           }
-          vercelEnvResolution.status = "resolved";
         } else {
-          vercelEnvResolution.status = result.reason;
-          vercelEnvResolution.message = result.message;
-          console.info(
-            `[Sandbox] Skipping Vercel env injection (${result.reason}) for ${repoOwner}/${repoName}`,
-          );
+          // No repo context, but token is still available for CLI use.
+          vercelEnvResolution.status = "token_only";
         }
       }
     } catch (error) {

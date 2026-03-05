@@ -1,6 +1,8 @@
 import "server-only";
 
 const VERCEL_API_BASE = "https://api.vercel.com";
+const PROJECTS_PER_PAGE = 100;
+const MAX_PAGES_PER_SCOPE = 5;
 
 export interface VercelProjectInfo {
   projectId: string;
@@ -21,8 +23,8 @@ export interface ResolutionDebugInfo {
   scopesSucceeded: number;
   scopesFailed: number;
   teamCount: number;
-  projectsFound: number;
-  repoUrlUsed: string;
+  totalProjectsSeen: number;
+  matchedProjectCount: number;
 }
 
 export type ProjectResolutionResult =
@@ -48,6 +50,10 @@ interface VercelProjectResponse {
 
 interface VercelProjectsListResponse {
   projects?: VercelProjectResponse[];
+  pagination?: {
+    count?: number;
+    next?: number | string | null;
+  };
 }
 
 interface VercelTeamResponse {
@@ -66,7 +72,7 @@ interface ProjectScope {
 }
 
 type ScopedProjectResult =
-  | { ok: true; projects: VercelProjectResponse[] }
+  | { ok: true; projects: VercelProjectResponse[]; totalSeen: number }
   | { ok: false; status: number; message: string };
 
 async function listVercelTeams(
@@ -86,6 +92,28 @@ async function listVercelTeams(
   return data.teams ?? [];
 }
 
+/**
+ * Check whether a Vercel project's git link matches the target GitHub repo.
+ */
+function projectMatchesRepo(
+  project: VercelProjectResponse,
+  repoOwner: string,
+  repoName: string,
+): boolean {
+  const link = project.link;
+  if (!link) return false;
+  if (link.type !== "github") return false;
+
+  const orgMatch = link.org?.toLowerCase() === repoOwner.toLowerCase();
+  const repoMatch = link.repo?.toLowerCase() === repoName.toLowerCase();
+
+  return orgMatch && repoMatch;
+}
+
+/**
+ * Fetch all projects for a given scope and filter client-side by repo link.
+ * Paginates through results to handle accounts with many projects.
+ */
 async function fetchProjectsForScope(params: {
   vercelToken: string;
   repoOwner: string;
@@ -95,43 +123,58 @@ async function fetchProjectsForScope(params: {
 }): Promise<ScopedProjectResult> {
   const { vercelToken, repoOwner, repoName, teamId, slug } = params;
 
-  const url = new URL(`${VERCEL_API_BASE}/v10/projects`);
-  url.searchParams.set(
-    "repoUrl",
-    `https://github.com/${repoOwner}/${repoName}`,
-  );
-  if (teamId) {
-    url.searchParams.set("teamId", teamId);
-  }
-  if (slug) {
-    url.searchParams.set("slug", slug);
+  const matched: VercelProjectResponse[] = [];
+  let totalSeen = 0;
+  let cursor: string | number | null | undefined = undefined;
+
+  for (let page = 0; page < MAX_PAGES_PER_SCOPE; page++) {
+    const url = new URL(`${VERCEL_API_BASE}/v10/projects`);
+    url.searchParams.set("limit", String(PROJECTS_PER_PAGE));
+    if (teamId) {
+      url.searchParams.set("teamId", teamId);
+    }
+    if (slug) {
+      url.searchParams.set("slug", slug);
+    }
+    if (cursor != null) {
+      url.searchParams.set("from", String(cursor));
+    }
+
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${vercelToken}` },
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      return { ok: false, status: response.status, message };
+    }
+
+    const data = (await response.json()) as VercelProjectsListResponse;
+    const projects = data.projects ?? [];
+    totalSeen += projects.length;
+
+    for (const project of projects) {
+      if (projectMatchesRepo(project, repoOwner, repoName)) {
+        matched.push(project);
+      }
+    }
+
+    // Stop if we found a match (no need to keep paginating) or no more pages
+    if (matched.length > 0) break;
+    if (!data.pagination?.next) break;
+    cursor = data.pagination.next;
   }
 
-  const response = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${vercelToken}` },
-  });
-
-  if (!response.ok) {
-    const message = await response.text();
-    return {
-      ok: false,
-      status: response.status,
-      message,
-    };
-  }
-
-  const data = (await response.json()) as VercelProjectsListResponse;
-  return {
-    ok: true,
-    projects: data.projects ?? [],
-  };
+  return { ok: true, projects: matched, totalSeen };
 }
 
 /**
  * Resolve a Vercel project from a GitHub repository.
  *
- * Searches personal scope, owner slug scope, and every accessible team scope
- * so repositories owned by orgs (e.g. vercel-labs/*) are resolvable.
+ * Lists all projects in personal scope, owner slug scope, and every
+ * accessible team scope, then matches client-side against the project's
+ * git link (link.org + link.repo). This avoids dependency on the API's
+ * server-side repo filter format.
  */
 export async function resolveVercelProject(params: {
   vercelToken: string;
@@ -139,8 +182,6 @@ export async function resolveVercelProject(params: {
   repoName: string;
 }): Promise<ProjectResolutionResult> {
   const { vercelToken, repoOwner, repoName } = params;
-
-  const repoUrl = `https://github.com/${repoOwner}/${repoName}`;
 
   try {
     const teams = await listVercelTeams(vercelToken);
@@ -175,6 +216,7 @@ export async function resolveVercelProject(params: {
     let hadSuccessfulQuery = false;
     let scopesSucceeded = 0;
     let scopesFailed = 0;
+    let totalProjectsSeen = 0;
     let lastErrorStatus: number | null = null;
 
     for (const scope of scopes) {
@@ -202,6 +244,7 @@ export async function resolveVercelProject(params: {
 
       hadSuccessfulQuery = true;
       scopesSucceeded++;
+      totalProjectsSeen += result.totalSeen;
 
       for (const project of result.projects) {
         const existing = projectsById.get(project.id);
@@ -224,8 +267,8 @@ export async function resolveVercelProject(params: {
       scopesSucceeded,
       scopesFailed,
       teamCount: teams.length,
-      projectsFound: projectsById.size,
-      repoUrlUsed: repoUrl,
+      totalProjectsSeen,
+      matchedProjectCount: projectsById.size,
     };
 
     if (projectsById.size === 0) {

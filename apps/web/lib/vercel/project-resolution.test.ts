@@ -8,12 +8,6 @@ interface MockApiResponse {
   body: unknown;
 }
 
-const EMPTY_PROJECTS_RESPONSE: MockApiResponse = {
-  ok: true,
-  status: 200,
-  body: { projects: [] },
-};
-
 // Track fetch calls
 let fetchCalls: Array<{ url: string; init?: RequestInit }> = [];
 let teamsApiResponse: MockApiResponse = {
@@ -21,9 +15,7 @@ let teamsApiResponse: MockApiResponse = {
   status: 200,
   body: { teams: [] },
 };
-let projectApiResponsesByScope: Record<string, MockApiResponse> = {
-  personal: EMPTY_PROJECTS_RESPONSE,
-};
+let projectApiResponsesByScope: Record<string, MockApiResponse> = {};
 
 function toResponse(response: MockApiResponse): Response {
   return {
@@ -43,6 +35,23 @@ async function withSuppressedConsoleError<T>(fn: () => Promise<T>): Promise<T> {
     console.error = originalConsoleError;
   }
 }
+
+function makeProjectsResponse(
+  projects: Array<{
+    id: string;
+    name: string;
+    accountId: string;
+    link?: { type?: string; org?: string; repo?: string };
+  }>,
+): MockApiResponse {
+  return {
+    ok: true,
+    status: 200,
+    body: { projects },
+  };
+}
+
+const EMPTY_PROJECTS_RESPONSE = makeProjectsResponse([]);
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = (async (
@@ -90,20 +99,14 @@ describe("resolveVercelProject", () => {
   beforeEach(() => {
     fetchCalls = [];
     teamsApiResponse = { ok: true, status: 200, body: { teams: [] } };
-    projectApiResponsesByScope = {
-      personal: { ok: true, status: 200, body: { projects: [] } },
-    };
+    projectApiResponsesByScope = {};
   });
 
-  test("returns project_unresolved when no projects match in any scope", async () => {
+  test("returns project_unresolved when no projects exist in any scope", async () => {
     teamsApiResponse = {
       ok: true,
       status: 200,
       body: { teams: [{ id: "team_1", slug: "acme" }] },
-    };
-    projectApiResponsesByScope = {
-      personal: { ok: true, status: 200, body: { projects: [] } },
-      team_1: { ok: true, status: 200, body: { projects: [] } },
     };
 
     const result = await resolveVercelProject({
@@ -117,43 +120,34 @@ describe("resolveVercelProject", () => {
       expect(result.reason).toBe("project_unresolved");
     }
 
-    expect(fetchCalls.length).toBe(4);
+    // Should query: personal, slug:acme, team_1 (slug:acme dedupes with team_1 if slug matches)
     expect(fetchCalls[0]!.url).toContain("/v2/teams");
-    const personalCall = fetchCalls.find(
-      (call) =>
-        call.url.includes("/v10/projects") &&
-        !call.url.includes("teamId=") &&
-        !call.url.includes("slug="),
+    // No repoUrl filter — projects are listed unfiltered
+    const projectCalls = fetchCalls.filter((c) =>
+      c.url.includes("/v10/projects"),
     );
-    expect(personalCall?.url).toContain(
-      "repoUrl=https%3A%2F%2Fgithub.com%2Facme%2Fapp",
-    );
-    expect(personalCall?.init?.headers).toEqual({
-      Authorization: "Bearer tok_test",
-    });
-    const slugCall = fetchCalls.find((call) => call.url.includes("slug=acme"));
-    expect(slugCall).toBeDefined();
-    const teamCall = fetchCalls.find((call) =>
-      call.url.includes("teamId=team_1"),
-    );
-    expect(teamCall).toBeDefined();
+    expect(projectCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of projectCalls) {
+      expect(call.url).not.toContain("repoUrl=");
+      expect(call.url).not.toContain("repo=");
+    }
   });
 
-  test("returns project info when exactly one project matches in personal scope", async () => {
-    projectApiResponsesByScope.personal = {
-      ok: true,
-      status: 200,
-      body: {
-        projects: [
-          {
-            id: "prj_123",
-            name: "my-app",
-            accountId: "team_456",
-            link: { type: "github", org: "acme", repo: "app" },
-          },
-        ],
+  test("matches project by git link in personal scope", async () => {
+    projectApiResponsesByScope.personal = makeProjectsResponse([
+      {
+        id: "prj_123",
+        name: "my-app",
+        accountId: "team_456",
+        link: { type: "github", org: "acme", repo: "app" },
       },
-    };
+      {
+        id: "prj_other",
+        name: "other-app",
+        accountId: "team_456",
+        link: { type: "github", org: "acme", repo: "other" },
+      },
+    ]);
 
     const result = await resolveVercelProject({
       vercelToken: "tok_test",
@@ -170,6 +164,50 @@ describe("resolveVercelProject", () => {
     }
   });
 
+  test("matches case-insensitively on org and repo", async () => {
+    projectApiResponsesByScope.personal = makeProjectsResponse([
+      {
+        id: "prj_ci",
+        name: "my-app",
+        accountId: "team_1",
+        link: { type: "github", org: "Acme", repo: "APP" },
+      },
+    ]);
+
+    const result = await resolveVercelProject({
+      vercelToken: "tok_test",
+      repoOwner: "acme",
+      repoName: "app",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.project.projectId).toBe("prj_ci");
+    }
+  });
+
+  test("ignores projects with non-github links", async () => {
+    projectApiResponsesByScope.personal = makeProjectsResponse([
+      {
+        id: "prj_gl",
+        name: "my-app",
+        accountId: "team_1",
+        link: { type: "gitlab", org: "acme", repo: "app" },
+      },
+    ]);
+
+    const result = await resolveVercelProject({
+      vercelToken: "tok_test",
+      repoOwner: "acme",
+      repoName: "app",
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("project_unresolved");
+    }
+  });
+
   test("resolves project from team scope when personal scope has no match", async () => {
     teamsApiResponse = {
       ok: true,
@@ -177,20 +215,15 @@ describe("resolveVercelProject", () => {
       body: { teams: [{ id: "team_456", slug: "vercel-labs" }] },
     };
     projectApiResponsesByScope = {
-      personal: { ok: true, status: 200, body: { projects: [] } },
-      team_456: {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [
-            {
-              id: "prj_team",
-              name: "open-harness",
-              accountId: "team_456",
-            },
-          ],
+      personal: EMPTY_PROJECTS_RESPONSE,
+      team_456: makeProjectsResponse([
+        {
+          id: "prj_team",
+          name: "open-harness",
+          accountId: "team_456",
+          link: { type: "github", org: "vercel-labs", repo: "open-harness" },
         },
-      },
+      ]),
     };
 
     const result = await resolveVercelProject({
@@ -205,29 +238,19 @@ describe("resolveVercelProject", () => {
       expect(result.project.orgId).toBe("team_456");
       expect(result.project.orgSlug).toBe("vercel-labs");
     }
-
-    const teamCall = fetchCalls.find((call) =>
-      call.url.includes("teamId=team_456"),
-    );
-    expect(teamCall).toBeDefined();
   });
 
   test("resolves project from owner slug scope without team membership", async () => {
     projectApiResponsesByScope = {
-      personal: { ok: true, status: 200, body: { projects: [] } },
-      "slug:vercel-labs": {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [
-            {
-              id: "prj_slug",
-              name: "open-harness",
-              accountId: "team_999",
-            },
-          ],
+      personal: EMPTY_PROJECTS_RESPONSE,
+      "slug:vercel-labs": makeProjectsResponse([
+        {
+          id: "prj_slug",
+          name: "open-harness",
+          accountId: "team_999",
+          link: { type: "github", org: "vercel-labs", repo: "open-harness" },
         },
-      },
+      ]),
     };
 
     const result = await resolveVercelProject({
@@ -241,11 +264,6 @@ describe("resolveVercelProject", () => {
       expect(result.project.projectId).toBe("prj_slug");
       expect(result.project.orgSlug).toBe("vercel-labs");
     }
-
-    const slugCall = fetchCalls.find((call) =>
-      call.url.includes("slug=vercel-labs"),
-    );
-    expect(slugCall).toBeDefined();
   });
 
   test("dedupes duplicate project ids across all scopes", async () => {
@@ -255,28 +273,17 @@ describe("resolveVercelProject", () => {
       body: { teams: [{ id: "team_1", slug: "acme" }] },
     };
 
+    const project = {
+      id: "prj_shared",
+      name: "app",
+      accountId: "team_1",
+      link: { type: "github", org: "acme", repo: "app" },
+    };
+
     projectApiResponsesByScope = {
-      personal: {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [{ id: "prj_shared", name: "app", accountId: "team_1" }],
-        },
-      },
-      "slug:acme": {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [{ id: "prj_shared", name: "app", accountId: "team_1" }],
-        },
-      },
-      team_1: {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [{ id: "prj_shared", name: "app", accountId: "team_1" }],
-        },
-      },
+      personal: makeProjectsResponse([project]),
+      "slug:acme": makeProjectsResponse([project]),
+      team_1: makeProjectsResponse([project]),
     };
 
     const result = await resolveVercelProject({
@@ -299,20 +306,22 @@ describe("resolveVercelProject", () => {
       body: { teams: [{ id: "team_1", slug: "acme" }] },
     };
     projectApiResponsesByScope = {
-      personal: {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [{ id: "prj_1", name: "app-1", accountId: "team_1" }],
+      personal: makeProjectsResponse([
+        {
+          id: "prj_1",
+          name: "app-1",
+          accountId: "team_1",
+          link: { type: "github", org: "acme", repo: "app" },
         },
-      },
-      team_1: {
-        ok: true,
-        status: 200,
-        body: {
-          projects: [{ id: "prj_2", name: "app-2", accountId: "team_1" }],
+      ]),
+      team_1: makeProjectsResponse([
+        {
+          id: "prj_2",
+          name: "app-2",
+          accountId: "team_1",
+          link: { type: "github", org: "acme", repo: "app" },
         },
-      },
+      ]),
     };
 
     const result = await resolveVercelProject({
@@ -330,16 +339,8 @@ describe("resolveVercelProject", () => {
 
   test("returns api_error when all project lookups fail", async () => {
     projectApiResponsesByScope = {
-      personal: {
-        ok: false,
-        status: 403,
-        body: { error: "forbidden" },
-      },
-      "slug:acme": {
-        ok: false,
-        status: 403,
-        body: { error: "forbidden" },
-      },
+      personal: { ok: false, status: 403, body: { error: "forbidden" } },
+      "slug:acme": { ok: false, status: 403, body: { error: "forbidden" } },
     };
 
     const result = await withSuppressedConsoleError(() =>
@@ -382,32 +383,31 @@ describe("resolveVercelProject", () => {
     }
   });
 
-  test("handles project without link/org gracefully", async () => {
-    projectApiResponsesByScope.personal = {
-      ok: true,
-      status: 200,
-      body: {
-        projects: [
-          {
-            id: "prj_solo",
-            name: "solo-app",
-            accountId: "user_789",
-          },
-        ],
+  test("includes debug info with totalProjectsSeen", async () => {
+    projectApiResponsesByScope.personal = makeProjectsResponse([
+      {
+        id: "prj_1",
+        name: "app-a",
+        accountId: "user_1",
+        link: { type: "github", org: "user", repo: "other" },
       },
-    };
+      {
+        id: "prj_2",
+        name: "app-b",
+        accountId: "user_1",
+        link: { type: "github", org: "user", repo: "target" },
+      },
+    ]);
 
     const result = await resolveVercelProject({
       vercelToken: "tok_test",
       repoOwner: "user",
-      repoName: "solo-app",
+      repoName: "target",
     });
 
     expect(result.ok).toBe(true);
-    if (result.ok) {
-      expect(result.project.projectId).toBe("prj_solo");
-      expect(result.project.orgId).toBe("user_789");
-      expect(result.project.orgSlug).toBeUndefined();
-    }
+    expect(result.debug).toBeDefined();
+    expect(result.debug!.totalProjectsSeen).toBeGreaterThanOrEqual(2);
+    expect(result.debug!.matchedProjectCount).toBe(1);
   });
 });

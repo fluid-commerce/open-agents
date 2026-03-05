@@ -213,7 +213,8 @@ describe("/api/sandbox lifecycle kicks", () => {
       vercelEnvResolution?: { status?: string };
     };
 
-    expect(data.vercelEnvResolution?.status).toBe("no_repo_context");
+    // No vercel token set (null in beforeEach), so status is no_vercel_auth
+    expect(data.vercelEnvResolution?.status).toBe("no_vercel_auth");
     expect(kickCalls.length).toBe(1);
     expect(kickCalls[0]?.sessionId).toBe("session-1");
     expect(kickCalls[0]?.reason).toBe("sandbox-created");
@@ -317,7 +318,7 @@ describe("/api/sandbox lifecycle kicks", () => {
     expect(config?.options?.env?.VERCEL_PROJECT_ID).toBeUndefined();
   });
 
-  test("reports project_ambiguous when resolver finds multiple matches", async () => {
+  test("injects token but not project when resolver finds multiple matches", async () => {
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
@@ -358,11 +359,12 @@ describe("/api/sandbox lifecycle kicks", () => {
       (c) => isConnectConfig(c) && c.state.type === "vercel",
     ) as { options?: { env?: Record<string, string> } } | undefined;
 
-    expect(config?.options?.env?.VERCEL_TOKEN).toBeUndefined();
+    // Token is always injected so the CLI can be used manually
+    expect(config?.options?.env?.VERCEL_TOKEN).toBe("tok_vercel_test");
     expect(config?.options?.env?.VERCEL_PROJECT_ID).toBeUndefined();
   });
 
-  test("does not inject Vercel env when no repo context", async () => {
+  test("injects token but not project when no repo context", async () => {
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
@@ -398,14 +400,14 @@ describe("/api/sandbox lifecycle kicks", () => {
       vercelEnvResolution?: { status?: string };
     };
 
-    expect(data.vercelEnvResolution?.status).toBe("no_repo_context");
+    expect(data.vercelEnvResolution?.status).toBe("token_only");
 
     const config = connectConfigs.find(
       (c) => isConnectConfig(c) && c.state.type === "vercel",
     ) as { options?: { env?: Record<string, string> } } | undefined;
 
-    // Should not have Vercel env since there's no repo context
-    expect(config?.options?.env?.VERCEL_TOKEN).toBeUndefined();
+    // Token is injected (CLI can still be used), but no project env
+    expect(config?.options?.env?.VERCEL_TOKEN).toBe("tok_vercel_test");
     expect(config?.options?.env?.VERCEL_PROJECT_ID).toBeUndefined();
   });
 
