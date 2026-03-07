@@ -47,7 +47,7 @@ export function SessionsRouteShell({
   const [optimisticActiveSessionId, setOptimisticActiveSessionId] = useState<
     string | null
   >(null);
-  const [, startNavigationTransition] = useTransition();
+  const [isNavigating, startNavigationTransition] = useTransition();
   const prefetchedSessionHrefsRef = useRef(new Set<string>());
 
   const {
@@ -129,6 +129,7 @@ export function SessionsRouteShell({
   }, [optimisticActiveSessionId, routeSessionId]);
 
   const activeSessionId = optimisticActiveSessionId ?? routeSessionId ?? "";
+  const pendingSessionId = isNavigating ? optimisticActiveSessionId : null;
 
   useBackgroundChatNotifications(sessions, routeSessionId, handleSessionClick);
 
@@ -156,6 +157,7 @@ export function SessionsRouteShell({
               archivedCount={archivedCount}
               sessionsLoading={sessionsLoading}
               activeSessionId={activeSessionId}
+              pendingSessionId={pendingSessionId}
               onSessionClick={handleSessionClick}
               onSessionPrefetch={handleSessionPrefetch}
               onRenameSession={handleRenameSession}
