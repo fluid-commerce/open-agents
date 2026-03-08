@@ -132,6 +132,67 @@ const validGpt5Transcript: ModelMessage[] = [
   },
 ];
 
+const gpt5TranscriptWithUnencryptedReasoning: ModelMessage[] = [
+  {
+    role: "assistant",
+    content: [
+      {
+        type: "reasoning",
+        text: "Thinking through a response.",
+        providerOptions: {
+          openai: {
+            itemId: "rs_missing_encrypted",
+          },
+        },
+      },
+      {
+        type: "text",
+        text: "Answer",
+      },
+    ],
+  },
+];
+
+const gpt5TranscriptWithLateEncryptedReasoning: ModelMessage[] = [
+  {
+    role: "assistant",
+    content: [
+      {
+        type: "reasoning",
+        text: "First reasoning chunk",
+        providerOptions: {
+          openai: {
+            itemId: "rs_shared_sequence",
+          },
+        },
+      },
+      {
+        type: "reasoning",
+        text: "Second reasoning chunk",
+        providerOptions: {
+          openai: {
+            itemId: "rs_shared_sequence",
+          },
+        },
+      },
+      {
+        type: "reasoning",
+        text: "Final reasoning chunk",
+        providerOptions: {
+          openai: {
+            itemId: "rs_shared_sequence",
+            reasoningEncryptedContent: "encrypted-shared-sequence",
+          },
+        },
+      },
+      {
+        type: "text",
+        text: "Final answer",
+      },
+    ],
+  },
+];
+
 describe("stripInvalidOpenAIReasoningParts", () => {
   test("strips only the reported GPT-5 reasoning block that is missing encrypted content", () => {
     const messages = structuredClone(reportedTranscript);
@@ -151,6 +212,41 @@ describe("stripInvalidOpenAIReasoningParts", () => {
     expect(result.messages).not.toBe(messages);
     expect(messages).toEqual(reportedTranscript);
     expect(result.messages).toEqual(expectedMessages);
+  });
+
+  test("strips GPT-5 reasoning parts when encrypted content metadata is missing entirely", () => {
+    const messages = structuredClone(gpt5TranscriptWithUnencryptedReasoning);
+
+    const result = stripInvalidOpenAIReasoningParts(
+      messages,
+      "openai/gpt-5.4-codex",
+    );
+
+    expect(result.strippedBlocks).toBe(1);
+    expect(result.messages).toEqual([
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "text",
+            text: "Answer",
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("keeps GPT-5 reasoning sequences when encrypted content appears later for the same itemId", () => {
+    const messages = structuredClone(gpt5TranscriptWithLateEncryptedReasoning);
+
+    const result = stripInvalidOpenAIReasoningParts(
+      messages,
+      "openai/gpt-5.4-codex",
+    );
+
+    expect(result.strippedBlocks).toBe(0);
+    expect(result.messages).toBe(messages);
+    expect(result.messages).toEqual(gpt5TranscriptWithLateEncryptedReasoning);
   });
 
   test("skips filtering entirely for non-GPT-5 OpenAI models", () => {
