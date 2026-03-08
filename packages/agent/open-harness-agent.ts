@@ -2,6 +2,7 @@ import type { Sandbox } from "@open-harness/sandbox";
 import {
   gateway,
   type LanguageModel,
+  type ModelMessage,
   stepCountIs,
   ToolLoopAgent,
   type ToolSet,
@@ -99,6 +100,152 @@ function getModelId(model: LanguageModel): string {
   return typeof model === "string" ? model : model.modelId;
 }
 
+const ENABLE_REASONING_DEBUG_LOGS =
+  process.env.OPEN_HARNESS_LOG_REASONING === "1";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function logStepReasoningBlocks(
+  messages: ModelMessage[],
+  context: {
+    modelId: string;
+    stepNumber: number;
+    stage: "before-compaction" | "after-compaction";
+  },
+): void {
+  if (!ENABLE_REASONING_DEBUG_LOGS) {
+    return;
+  }
+
+  const reasoningBlocks: Array<Record<string, unknown>> = [];
+
+  for (
+    let messageIndex = 0;
+    messageIndex < messages.length;
+    messageIndex += 1
+  ) {
+    const message = messages[messageIndex];
+    if (
+      !message ||
+      message.role !== "assistant" ||
+      typeof message.content === "string"
+    ) {
+      continue;
+    }
+
+    for (
+      let partIndex = 0;
+      partIndex < message.content.length;
+      partIndex += 1
+    ) {
+      const part = message.content[partIndex];
+      if (!part || part.type !== "reasoning") {
+        continue;
+      }
+
+      const providerOptions =
+        "providerOptions" in part ? part.providerOptions : undefined;
+      const openaiOptions =
+        isRecord(providerOptions) && isRecord(providerOptions.openai)
+          ? providerOptions.openai
+          : null;
+
+      const itemId =
+        openaiOptions && typeof openaiOptions.itemId === "string"
+          ? openaiOptions.itemId
+          : null;
+      const encryptedContent =
+        openaiOptions &&
+        typeof openaiOptions.reasoningEncryptedContent === "string"
+          ? openaiOptions.reasoningEncryptedContent
+          : null;
+
+      reasoningBlocks.push({
+        messageIndex,
+        partIndex,
+        itemId,
+        reasoningTextLength: part.text.length,
+        encryptedContentLength: encryptedContent?.length ?? null,
+      });
+    }
+  }
+
+  console.log(
+    "[reasoning-debug][agent][step]",
+    JSON.stringify(
+      {
+        ...context,
+        messageCount: messages.length,
+        reasoningBlockCount: reasoningBlocks.length,
+        reasoningBlocks,
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function stripInvalidOpenAIReasoningParts(
+  messages: ModelMessage[],
+  modelId: string,
+): { messages: ModelMessage[]; strippedBlocks: number } {
+  if (!modelId.startsWith("openai/")) {
+    return { messages, strippedBlocks: 0 };
+  }
+
+  let strippedBlocks = 0;
+
+  const sanitizedMessages = messages.map((message) => {
+    if (
+      !message ||
+      message.role !== "assistant" ||
+      typeof message.content === "string"
+    ) {
+      return message;
+    }
+
+    let changed = false;
+    const sanitizedContent = message.content.filter((part) => {
+      if (!part || part.type !== "reasoning") {
+        return true;
+      }
+
+      const providerOptions =
+        "providerOptions" in part ? part.providerOptions : undefined;
+      const openaiOptions =
+        isRecord(providerOptions) && isRecord(providerOptions.openai)
+          ? providerOptions.openai
+          : null;
+      if (!openaiOptions) {
+        return true;
+      }
+
+      const itemId = openaiOptions.itemId;
+      if (typeof itemId !== "string" || itemId.length === 0) {
+        return true;
+      }
+
+      const encryptedContent = openaiOptions.reasoningEncryptedContent;
+      if (
+        typeof encryptedContent === "string" &&
+        encryptedContent.trim().length > 0
+      ) {
+        return true;
+      }
+
+      strippedBlocks += 1;
+      changed = true;
+      return false;
+    });
+
+    return changed ? { ...message, content: sanitizedContent } : message;
+  });
+
+  return { messages: sanitizedMessages, strippedBlocks };
+}
+
 function resolveCompactionTuning(model: LanguageModel): CompactionTuning {
   const modelId = getModelId(model);
 
@@ -151,20 +298,47 @@ export const openHarnessAgent = new ToolLoopAgent({
     const callContext =
       getCompactionContextFromExperimentalContext(experimental_context);
     const compactionTuning = resolveCompactionTuning(model);
+    const modelId = getModelId(model);
+    const stepNumber = steps.length + 1;
+
+    logStepReasoningBlocks(messages, {
+      modelId,
+      stepNumber,
+      stage: "before-compaction",
+    });
+
+    const { messages: sanitizedMessages, strippedBlocks } =
+      stripInvalidOpenAIReasoningParts(messages, modelId);
+
+    if (strippedBlocks > 0) {
+      console.warn(
+        `[agent] Stripped ${strippedBlocks} OpenAI reasoning parts missing reasoningEncryptedContent before step ${stepNumber} (${modelId}).`,
+      );
+    }
+
+    const compactedMessages = aggressiveCompactContext({
+      messages: sanitizedMessages,
+      steps,
+      contextLimit: callContext?.contextLimit ?? DEFAULT_CONTEXT_LIMIT,
+      lastInputTokens: callContext?.lastInputTokens,
+      triggerPercent: compactionTuning.triggerPercent,
+      minSavingsPercent: compactionTuning.minSavingsPercent,
+      retainRecentToolCalls: compactionTuning.retainRecentToolCalls,
+    });
+
+    const preparedMessages = addCacheControl({
+      messages: compactedMessages,
+      model,
+    });
+
+    logStepReasoningBlocks(preparedMessages, {
+      modelId,
+      stepNumber,
+      stage: "after-compaction",
+    });
 
     return {
-      messages: addCacheControl({
-        messages: aggressiveCompactContext({
-          messages,
-          steps,
-          contextLimit: callContext?.contextLimit ?? DEFAULT_CONTEXT_LIMIT,
-          lastInputTokens: callContext?.lastInputTokens,
-          triggerPercent: compactionTuning.triggerPercent,
-          minSavingsPercent: compactionTuning.minSavingsPercent,
-          retainRecentToolCalls: compactionTuning.retainRecentToolCalls,
-        }),
-        model,
-      }),
+      messages: preparedMessages,
     };
   },
   prepareCall: ({ options, model, ...settings }) => {
