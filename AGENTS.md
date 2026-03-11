@@ -22,6 +22,11 @@ bun run --cwd apps/web db:generate   # Creates a new .sql migration file
 
 Commit the generated `.sql` file alongside the schema change. **Do not use `db:push`** except for local throwaway databases.
 
+**Before generating a migration:**
+
+- Fetch and integrate the latest `origin/main` so the new migration number is based on the current upstream sequence.
+- Never rename or renumber a migration that may already have run on a preview or production database; create a new follow-up migration instead.
+
 Migrations run automatically during `bun run build` (via `lib/db/migrate.ts`), so every Vercel deploy — both preview and production — applies pending migrations to its own database.
 
 ### Environment isolation
