@@ -1,6 +1,6 @@
 "use client";
 
-import type { AskUserQuestionInput } from "@open-harness/agent";
+import type { AskUserQuestionInput, TaskToolUIPart } from "@open-harness/agent";
 import { isReasoningUIPart, isToolUIPart, type FileUIPart } from "ai";
 import {
   Archive,
@@ -52,6 +52,7 @@ import { ImageAttachmentsPreview } from "@/components/image-attachments-preview"
 import { ModelSelectorCompact } from "@/components/model-selector-compact";
 import { QuestionPanel } from "@/components/question-panel";
 import { SlashCommandDropdown } from "@/components/slash-command-dropdown";
+import { TaskGroupView } from "@/components/task-group-view";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { ToolCall } from "@/components/tool-call";
 import { Button } from "@/components/ui/button";
@@ -208,6 +209,12 @@ type MessageRenderGroup =
       type: "part";
       part: WebAgentUIMessagePart;
       index: number;
+      renderKey: string;
+    }
+  | {
+      type: "task-group";
+      tasks: TaskToolUIPart[];
+      startIndex: number;
       renderKey: string;
     }
   | {
@@ -1138,6 +1145,9 @@ export function SessionChatContent({
   const groupedRenderMessages = useMemo<GroupedRenderMessage[]>(() => {
     return renderMessages.map((message, messageIndex) => {
       const groups: MessageRenderGroup[] = [];
+      let currentTaskGroup: TaskToolUIPart[] = [];
+      let taskGroupStartIndex = 0;
+      let taskGroupOrdinal = 0;
       let currentReasoningGroup: ReasoningMessagePart[] = [];
       let reasoningGroupStartIndex = 0;
       const partIdentityCounts = new Map<string, number>();
@@ -1154,6 +1164,24 @@ export function SessionChatContent({
         return `${identity}:${count}`;
       };
 
+      const flushTaskGroup = () => {
+        if (currentTaskGroup.length === 0) return;
+
+        const firstTaskId =
+          currentTaskGroup.find((task) => task.toolCallId)?.toolCallId ?? null;
+
+        groups.push({
+          type: "task-group",
+          tasks: currentTaskGroup,
+          startIndex: taskGroupStartIndex,
+          renderKey: firstTaskId
+            ? `task-group:${firstTaskId}`
+            : `task-group:${taskGroupOrdinal}`,
+        });
+        currentTaskGroup = [];
+        taskGroupOrdinal += 1;
+      };
+
       const flushReasoningGroup = () => {
         if (currentReasoningGroup.length === 0) return;
 
@@ -1167,7 +1195,17 @@ export function SessionChatContent({
       };
 
       message.parts.forEach((part, index) => {
+        if (isToolUIPart(part) && part.type === "tool-task") {
+          flushReasoningGroup();
+          if (currentTaskGroup.length === 0) {
+            taskGroupStartIndex = index;
+          }
+          currentTaskGroup.push(part);
+          return;
+        }
+
         if (isReasoningUIPart(part)) {
+          flushTaskGroup();
           if (currentReasoningGroup.length === 0) {
             reasoningGroupStartIndex = index;
           }
@@ -1175,6 +1213,7 @@ export function SessionChatContent({
           return;
         }
 
+        flushTaskGroup();
         flushReasoningGroup();
         groups.push({
           type: "part",
@@ -1184,6 +1223,7 @@ export function SessionChatContent({
         });
       });
 
+      flushTaskGroup();
       flushReasoningGroup();
 
       return {
@@ -2797,6 +2837,35 @@ export function SessionChatContent({
               {groupedRenderMessages.map(
                 ({ message: m, groups, isStreaming: isMessageStreaming }) => {
                   return groups.map((group) => {
+                    if (group.type === "task-group") {
+                      return (
+                        <div
+                          key={`${m.id}-${group.renderKey}`}
+                          className="max-w-full"
+                        >
+                          <TaskGroupView
+                            taskParts={group.tasks}
+                            activeApprovalId={
+                              group.tasks.find(
+                                (t) => t.state === "approval-requested",
+                              )?.approval?.id ?? null
+                            }
+                            isStreaming={isMessageStreaming}
+                            onApprove={(id) =>
+                              addToolApprovalResponse({ id, approved: true })
+                            }
+                            onDeny={(id, reason) =>
+                              addToolApprovalResponse({
+                                id,
+                                approved: false,
+                                reason,
+                              })
+                            }
+                          />
+                        </div>
+                      );
+                    }
+
                     if (group.type === "reasoning-group") {
                       const hasRenderableContentAfterGroup = m.parts
                         .slice(group.startIndex + group.parts.length)

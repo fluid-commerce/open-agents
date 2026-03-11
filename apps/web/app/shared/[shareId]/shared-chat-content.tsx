@@ -1,5 +1,6 @@
 "use client";
 
+import type { TaskToolUIPart } from "@open-harness/agent";
 import { isReasoningUIPart, isToolUIPart } from "ai";
 import {
   Bot,
@@ -17,6 +18,7 @@ import type {
   WebAgentUIMessagePart,
   WebAgentUIToolPart,
 } from "@/app/types";
+import { TaskGroupView } from "@/components/task-group-view";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { ToolCall } from "@/components/tool-call";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -330,14 +332,34 @@ function SharedMessage({
         index: number;
       }
     | {
+        type: "task-group";
+        tasks: TaskToolUIPart[];
+        startIndex: number;
+      }
+    | {
         type: "reasoning-group";
         parts: ReasoningMessagePart[];
         startIndex: number;
       };
 
   const renderGroups: RenderGroup[] = [];
+  let currentTaskGroup: TaskToolUIPart[] = [];
+  let taskGroupStartIndex = 0;
   let currentReasoningGroup: ReasoningMessagePart[] = [];
   let reasoningGroupStartIndex = 0;
+
+  const flushTaskGroup = () => {
+    if (currentTaskGroup.length === 0) {
+      return;
+    }
+
+    renderGroups.push({
+      type: "task-group",
+      tasks: currentTaskGroup,
+      startIndex: taskGroupStartIndex,
+    });
+    currentTaskGroup = [];
+  };
 
   const flushReasoningGroup = () => {
     if (currentReasoningGroup.length === 0) {
@@ -353,7 +375,17 @@ function SharedMessage({
   };
 
   m.parts.forEach((part, index) => {
+    if (isToolUIPart(part) && part.type === "tool-task") {
+      flushReasoningGroup();
+      if (currentTaskGroup.length === 0) {
+        taskGroupStartIndex = index;
+      }
+      currentTaskGroup.push(part as TaskToolUIPart);
+      return;
+    }
+
     if (isReasoningUIPart(part)) {
+      flushTaskGroup();
       if (currentReasoningGroup.length === 0) {
         reasoningGroupStartIndex = index;
       }
@@ -361,10 +393,12 @@ function SharedMessage({
       return;
     }
 
+    flushTaskGroup();
     flushReasoningGroup();
     renderGroups.push({ type: "part", part, index });
   });
 
+  flushTaskGroup();
   flushReasoningGroup();
 
   // When tool calls are hidden and this assistant message has tool calls,
@@ -380,6 +414,22 @@ function SharedMessage({
         />
       )}
       {renderGroups.map((group) => {
+        if (group.type === "task-group") {
+          if (!showToolCalls) return null;
+          return (
+            <div
+              key={`${m.id}-task-group-${group.startIndex}`}
+              className="max-w-full"
+            >
+              <TaskGroupView
+                taskParts={group.tasks}
+                activeApprovalId={null}
+                isStreaming={false}
+              />
+            </div>
+          );
+        }
+
         if (group.type === "reasoning-group") {
           if (!showToolCalls) return null;
           return (
