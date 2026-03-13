@@ -118,13 +118,40 @@ Progress notes (Pass 2):
   - `bun test 'apps/web/app/api/sandbox/status/route.test.ts'` ✅
   - `bun run build --filter=web` ✅
 
-## Phase 3 — Large route decomposition (planned)
+## Phase 3 — Large route decomposition (completed)
 Candidates:
 - `apps/web/app/api/generate-pr/route.ts`
 - `apps/web/app/api/sessions/[sessionId]/diff/route.ts`
 - `apps/web/app/api/github/create-repo/route.ts`
 
 Checklist:
-- [ ] Identify cohesive helper boundaries per route
-- [ ] Split into `_lib` modules without behavior changes
-- [ ] Verify with scripts
+- [x] Identify cohesive helper boundaries per route
+- [x] Split into `_lib` modules without behavior changes
+- [x] Verify with scripts
+
+Progress notes (Pass 1):
+- Extracted diff parsing/base-ref helper logic from `apps/web/app/api/sessions/[sessionId]/diff/route.ts` into `apps/web/app/api/sessions/[sessionId]/diff/_lib/diff-utils.ts`.
+- Kept `apps/web/app/api/sessions/[sessionId]/diff/route.ts` orchestration-focused while preserving existing status codes and behavior.
+- Verification run:
+  - `bun run typecheck --filter=web` ✅
+  - `bun run lint --filter=web` ✅ (existing unrelated max-lines warnings)
+  - `bun run test:isolated` ✅
+  - `bun run build --filter=web` ✅
+
+Progress notes (Pass 2):
+- Extracted reusable generate-PR helper logic from `apps/web/app/api/generate-pr/route.ts` into `apps/web/app/api/generate-pr/_lib/generate-pr-helpers.ts` (branch naming, fork fallback helpers, token redaction, and conversation context assembly).
+- Kept `apps/web/app/api/generate-pr/route.ts` focused on orchestration while preserving existing API behavior/status codes.
+- Verification run:
+  - `bun run typecheck --filter=web` ✅
+  - `bun run lint --filter=web` ✅ (existing unrelated max-lines warnings)
+  - `bun run test:isolated` ✅
+  - `bun run build --filter=web` ✅
+
+Progress notes (Pass 3):
+- Extracted the create-repository sandbox workflow from `apps/web/app/api/github/create-repo/route.ts` into `apps/web/app/api/github/create-repo/_lib/create-repo-workflow.ts`.
+- Kept `apps/web/app/api/github/create-repo/route.ts` focused on auth/ownership/token resolution and response orchestration while preserving existing behavior/status codes.
+- Verification run:
+  - `bun run typecheck --filter=web` ✅
+  - `bun run lint --filter=web` ✅ (existing unrelated max-lines warnings)
+  - `bun run test:isolated` ✅
+  - `bun run build --filter=web` ✅
