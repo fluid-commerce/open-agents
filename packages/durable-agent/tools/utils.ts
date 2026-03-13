@@ -68,21 +68,6 @@ export function toDisplayPath(
   return relativePath.length > 0 ? relativePath : ".";
 }
 
-const sandboxConnections = new Map<string, Promise<Sandbox>>();
-
-export async function getConnectedSandbox(sandboxId: string): Promise<Sandbox> {
-  const existingConnection = sandboxConnections.get(sandboxId);
-  if (existingConnection) {
-    return existingConnection;
-  }
-
-  const connection = connectSandbox({ type: "vercel", sandboxId }).catch(
-    (error) => {
-      sandboxConnections.delete(sandboxId);
-      throw error;
-    },
-  );
-
-  sandboxConnections.set(sandboxId, connection);
-  return connection;
+export function getConnectedSandbox(sandboxId: string): Promise<Sandbox> {
+  return connectSandbox({ type: "vercel", sandboxId });
 }
