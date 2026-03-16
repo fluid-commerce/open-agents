@@ -1,16 +1,11 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 interface TestSessionRecord {
   id: string;
   userId: string;
-  title: string;
-  cloneUrl: string;
-  repoOwner: string;
-  repoName: string;
-  autoCommitPushOverride?: boolean | null;
   sandboxState: {
     type: "vercel";
-  };
+  } | null;
 }
 
 interface TestChatRecord {
@@ -19,191 +14,112 @@ interface TestChatRecord {
   activeStreamId: string | null;
 }
 
-interface StreamResponseOptions {
-  onFinish: (params: {
-    responseMessage: {
-      id: string;
-      role: "assistant";
-      parts: unknown[];
-    };
-  }) => Promise<void>;
-}
-
-const autoCommitCalls: Array<Record<string, unknown>> = [];
-const backgroundTasks: Promise<void>[] = [];
-const fetchCalls: string[] = [];
+const scheduleLatestMessagePersistenceCalls: Array<{
+  chatId: string;
+  messages: unknown[];
+}> = [];
+const updateSessionCalls: Array<{
+  sessionId: string;
+  patch: Record<string, unknown>;
+}> = [];
+const startCalls: Array<{
+  workflow: unknown;
+  args: unknown[];
+}> = [];
+const resolveChatModelSelectionCalls: Array<{
+  selectedModelId: string | null | undefined;
+}> = [];
 
 let sessionRecord: TestSessionRecord | null;
 let chatRecord: TestChatRecord | null;
 let currentAuthSession: { user: { id: string } } | null;
-let isSandboxActive = true;
-let shouldTriggerStopBeforeFinish = false;
-let stopCallback: (() => void) | null = null;
-let preferencesAutoCommitPush = true;
+let sandboxIsActive = true;
+let workflowStartRunId = "workflow-run-1";
+let mainModelSelection = { id: "anthropic/claude-haiku-4.5" };
+let subagentModelSelection = { id: "openai/gpt-5-mini" };
+let preferences: {
+  defaultSubagentModelId?: string;
+  modelVariants?: unknown[];
+} | null = { modelVariants: [] };
 
-const originalFetch = globalThis.fetch;
-
-globalThis.fetch = (async (input: RequestInfo | URL) => {
-  fetchCalls.push(String(input));
-  return new Response("{}", {
-    status: 200,
-    headers: {
-      "Content-Type": "application/json",
-    },
-  });
-}) as typeof fetch;
-
-mock.module("next/server", () => ({
-  after: (task: Promise<unknown>) => {
-    backgroundTasks.push(Promise.resolve(task).then(() => undefined));
-  },
-}));
+const mockChatWorkflow = async () => undefined;
 
 mock.module("ai", () => ({
-  convertToModelMessages: async (messages: unknown) => messages,
+  createUIMessageStreamResponse: ({ headers }: { headers?: HeadersInit }) =>
+    new Response("ok", {
+      status: 200,
+      headers,
+    }),
 }));
 
-mock.module("@/app/config", () => ({
-  webAgent: {
-    tools: {},
-    stream: async () => {
-      let resolveConsumeStream: (() => void) | null = null;
-
-      return {
-        consumeStream: () =>
-          new Promise<void>((resolve) => {
-            resolveConsumeStream = resolve;
-          }),
-        toUIMessageStreamResponse: async ({
-          onFinish,
-        }: StreamResponseOptions) => {
-          if (shouldTriggerStopBeforeFinish) {
-            stopCallback?.();
-          }
-
-          await onFinish({
-            responseMessage: {
-              id: "assistant-1",
-              role: "assistant",
-              parts: [],
-            },
-          });
-
-          resolveConsumeStream?.();
-          return new Response("ok", { status: 200 });
-        },
-      };
-    },
+mock.module("workflow/api", () => ({
+  start: async (workflow: unknown, args: unknown[]) => {
+    startCalls.push({ workflow, args });
+    return {
+      runId: workflowStartRunId,
+      readable: new ReadableStream(),
+    };
   },
 }));
 
-mock.module("@open-harness/agent", () => ({
-  collectTaskToolUsageEvents: () => [],
-  discoverSkills: async () => [],
-  gateway: () => "mock-model",
-  sumLanguageModelUsage: (_existing: unknown, usage: unknown) => usage,
-}));
-
-mock.module("@open-harness/sandbox", () => ({
-  connectSandbox: async () => ({
-    workingDirectory: "/vercel/sandbox",
-    exec: async () => ({ success: true, stdout: "", stderr: "" }),
-    getState: () => ({
-      type: "vercel",
-      sandboxId: "sandbox-1",
-      expiresAt: Date.now() + 60_000,
-    }),
-  }),
+mock.module("@/app/workflows/chat", () => ({
+  chatWorkflow: mockChatWorkflow,
 }));
 
 mock.module("@/lib/db/sessions", () => ({
   compareAndSetChatActiveStreamId: async () => true,
-  createChatMessageIfNotExists: async () => undefined,
   getChatById: async () => chatRecord,
   getSessionById: async () => sessionRecord,
-  isFirstChatMessage: async () => false,
-  touchChat: async () => {},
-  updateChat: async () => {},
-  updateChatActiveStreamId: async () => {},
-  updateChatAssistantActivity: async () => {},
-  updateSession: async (_sessionId: string, patch: Record<string, unknown>) =>
-    patch,
-  upsertChatMessageScoped: async () => ({ status: "inserted" as const }),
-}));
-
-mock.module("@/lib/db/usage", () => ({
-  recordUsage: async () => {},
+  updateSession: async (sessionId: string, patch: Record<string, unknown>) => {
+    updateSessionCalls.push({ sessionId, patch });
+    return patch;
+  },
 }));
 
 mock.module("@/lib/db/user-preferences", () => ({
-  getUserPreferences: async () => ({
-    autoCommitPush: preferencesAutoCommitPush,
-    modelVariants: [],
-  }),
-}));
-
-mock.module("@/lib/chat-auto-commit", () => ({
-  runAutoCommitInBackground: async (params: Record<string, unknown>) => {
-    autoCommitCalls.push(params);
-  },
-}));
-
-mock.module("@/lib/github/get-repo-token", () => ({
-  getRepoToken: async () => ({ token: null }),
-}));
-
-mock.module("@/lib/skills-cache", () => ({
-  getCachedSkills: async () => [],
-  setCachedSkills: async () => {},
-}));
-
-mock.module("@/lib/github/user-token", () => ({
-  getUserGitHubToken: async () => null,
-}));
-
-mock.module("@/lib/resumable-stream-context", () => ({
-  resumableStreamContext: {
-    createNewResumableStream: async () => {},
-  },
-}));
-
-mock.module("@/lib/sandbox/config", () => ({
-  DEFAULT_SANDBOX_PORTS: [],
+  getUserPreferences: async () => preferences,
 }));
 
 mock.module("@/lib/sandbox/lifecycle", () => ({
-  buildActiveLifecycleUpdate: () => ({}),
+  buildActiveLifecycleUpdate: () => ({ lifecycleState: "active" }),
 }));
 
 mock.module("@/lib/sandbox/utils", () => ({
-  isSandboxActive: () => isSandboxActive,
+  isSandboxActive: () => sandboxIsActive,
 }));
 
 mock.module("@/lib/session/get-server-session", () => ({
   getServerSession: async () => currentAuthSession,
 }));
 
-mock.module("@/lib/stop-signal", () => ({
-  onStopSignal: async (_chatId: string, callback: () => void) => {
-    stopCallback = callback;
-    return () => {
-      stopCallback = null;
-    };
+mock.module("./_lib/message-persistence", () => ({
+  scheduleLatestMessagePersistence: (chatId: string, messages: unknown[]) => {
+    scheduleLatestMessagePersistenceCalls.push({ chatId, messages });
+    return null;
+  },
+}));
+
+mock.module("./_lib/model-selection", () => ({
+  resolveChatModelSelection: (params: {
+    selectedModelId: string | null | undefined;
+  }) => {
+    resolveChatModelSelectionCalls.push({
+      selectedModelId: params.selectedModelId,
+    });
+
+    return params.selectedModelId === "subagent-model"
+      ? subagentModelSelection
+      : mainModelSelection;
   },
 }));
 
 const routeModulePromise = import("./route");
-
-afterAll(() => {
-  globalThis.fetch = originalFetch;
-});
 
 function createRequest(body: string) {
   return new Request("http://localhost/api/chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      cookie: "session=abc",
     },
     body,
   });
@@ -227,32 +143,27 @@ function createValidRequest() {
 
 describe("/api/chat route", () => {
   beforeEach(() => {
-    autoCommitCalls.length = 0;
-    backgroundTasks.length = 0;
-    fetchCalls.length = 0;
-    shouldTriggerStopBeforeFinish = false;
-    stopCallback = null;
-    preferencesAutoCommitPush = true;
+    scheduleLatestMessagePersistenceCalls.length = 0;
+    updateSessionCalls.length = 0;
+    startCalls.length = 0;
+    resolveChatModelSelectionCalls.length = 0;
+    sandboxIsActive = true;
+    workflowStartRunId = "workflow-run-1";
     currentAuthSession = {
       user: {
         id: "user-1",
       },
     };
-    isSandboxActive = true;
-
+    mainModelSelection = { id: "anthropic/claude-haiku-4.5" };
+    subagentModelSelection = { id: "openai/gpt-5-mini" };
+    preferences = { modelVariants: [] };
     sessionRecord = {
       id: "session-1",
       userId: "user-1",
-      title: "Session title",
-      cloneUrl: "https://github.com/acme/repo.git",
-      repoOwner: "acme",
-      repoName: "repo",
-      autoCommitPushOverride: null,
       sandboxState: {
         type: "vercel",
       },
     };
-
     chatRecord = {
       sessionId: "session-1",
       modelId: null,
@@ -260,72 +171,71 @@ describe("/api/chat route", () => {
     };
   });
 
-  test("runs auto commit after a natural finish", async () => {
+  test("starts the durable chat workflow for a valid request", async () => {
     const { POST } = await routeModulePromise;
 
     const response = await POST(createValidRequest());
 
-    await Promise.all(backgroundTasks);
-
     expect(response.ok).toBe(true);
-    expect(autoCommitCalls).toHaveLength(1);
-    expect(autoCommitCalls[0]).toMatchObject({
-      sessionId: "session-1",
-      sessionTitle: "Session title",
-      repoOwner: "acme",
-      repoName: "repo",
+    expect(response.headers.get("x-workflow-run-id")).toBe("workflow-run-1");
+    expect(scheduleLatestMessagePersistenceCalls).toEqual([
+      {
+        chatId: "chat-1",
+        messages: [
+          {
+            id: "user-1",
+            role: "user",
+            parts: [{ type: "text", text: "Fix the bug" }],
+          },
+        ],
+      },
+    ]);
+    expect(updateSessionCalls).toEqual([
+      {
+        sessionId: "session-1",
+        patch: { lifecycleState: "active" },
+      },
+    ]);
+    expect(startCalls).toHaveLength(1);
+    expect(startCalls[0]).toMatchObject({
+      workflow: mockChatWorkflow,
+      args: [
+        {
+          userId: "user-1",
+          sessionId: "session-1",
+          chatId: "chat-1",
+          messages: [
+            {
+              id: "user-1",
+              role: "user",
+              parts: [{ type: "text", text: "Fix the bug" }],
+            },
+          ],
+          requestStartedAtMs: expect.any(Number),
+          model: { id: "anthropic/claude-haiku-4.5" },
+        },
+      ],
     });
-    expect(fetchCalls).toEqual([
-      "http://localhost/api/sessions/session-1/diff",
-    ]);
+    expect(resolveChatModelSelectionCalls).toEqual([{ selectedModelId: null }]);
   });
 
-  test("skips auto commit when the session override is disabled", async () => {
-    if (!sessionRecord) {
-      throw new Error("sessionRecord must be set");
-    }
-    sessionRecord.autoCommitPushOverride = false;
+  test("includes the subagent model selection when configured", async () => {
+    preferences = {
+      modelVariants: [],
+      defaultSubagentModelId: "subagent-model",
+    };
+
     const { POST } = await routeModulePromise;
 
     const response = await POST(createValidRequest());
 
-    await Promise.all(backgroundTasks);
-
     expect(response.ok).toBe(true);
-    expect(autoCommitCalls).toHaveLength(0);
-    expect(fetchCalls).toEqual([
-      "http://localhost/api/sessions/session-1/diff",
-    ]);
-  });
-
-  test("uses session override even when user preference is disabled", async () => {
-    preferencesAutoCommitPush = false;
-    if (!sessionRecord) {
-      throw new Error("sessionRecord must be set");
-    }
-    sessionRecord.autoCommitPushOverride = true;
-    const { POST } = await routeModulePromise;
-
-    const response = await POST(createValidRequest());
-
-    await Promise.all(backgroundTasks);
-
-    expect(response.ok).toBe(true);
-    expect(autoCommitCalls).toHaveLength(1);
-  });
-
-  test("skips auto commit when the chat is stopped", async () => {
-    shouldTriggerStopBeforeFinish = true;
-    const { POST } = await routeModulePromise;
-
-    const response = await POST(createValidRequest());
-
-    await Promise.all(backgroundTasks);
-
-    expect(response.ok).toBe(true);
-    expect(autoCommitCalls).toHaveLength(0);
-    expect(fetchCalls).toEqual([
-      "http://localhost/api/sessions/session-1/diff",
+    expect(startCalls[0]?.args[0]).toMatchObject({
+      subagentModel: { id: "openai/gpt-5-mini" },
+    });
+    expect(resolveChatModelSelectionCalls).toEqual([
+      { selectedModelId: null },
+      { selectedModelId: "subagent-model" },
     ]);
   });
 
@@ -387,7 +297,7 @@ describe("/api/chat route", () => {
     });
   });
 
-  test("returns 403 when session is not owned by user", async () => {
+  test("returns 403 when session is not owned by the user", async () => {
     if (!sessionRecord) {
       throw new Error("sessionRecord must be set");
     }
@@ -404,7 +314,7 @@ describe("/api/chat route", () => {
   });
 
   test("returns 400 when sandbox is not active", async () => {
-    isSandboxActive = false;
+    sandboxIsActive = false;
     const { POST } = await routeModulePromise;
 
     const response = await POST(createValidRequest());

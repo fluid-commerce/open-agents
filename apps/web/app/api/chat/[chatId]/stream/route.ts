@@ -1,51 +1,56 @@
 import { UI_MESSAGE_STREAM_HEADERS } from "ai";
-import { after } from "next/server";
+import { getRun } from "workflow/api";
 import {
   requireAuthenticatedUser,
   requireOwnedChatById,
 } from "@/app/api/chat/_lib/chat-context";
-import { updateChatActiveStreamId } from "@/lib/db/sessions";
-import { resumableStreamContext } from "@/lib/resumable-stream-context";
+import { parseStreamTokenValue } from "@/lib/chat-stream-token";
 
 type RouteContext = {
   params: Promise<{ chatId: string }>;
 };
 
-export async function GET(_request: Request, context: RouteContext) {
+export async function GET(request: Request, context: RouteContext) {
   const authResult = await requireAuthenticatedUser("text");
   if (!authResult.ok) {
     return authResult.response;
   }
 
-  const { chatId } = await context.params;
+  const { chatId: runId } = await context.params;
+  const owningChatId = request.headers.get("x-chat-id");
+  if (!owningChatId) {
+    return new Response("Missing x-chat-id header", { status: 400 });
+  }
 
   const chatContext = await requireOwnedChatById({
     userId: authResult.userId,
-    chatId,
+    chatId: owningChatId,
     format: "text",
   });
   if (!chatContext.ok) {
     return chatContext.response;
   }
 
-  const { chat } = chatContext;
-
-  if (!chat.activeStreamId) {
+  const activeRunId = parseStreamTokenValue(chatContext.chat.activeStreamId);
+  if (!activeRunId || activeRunId !== runId) {
     return new Response(null, { status: 204 });
   }
 
-  const stream = await resumableStreamContext.resumeExistingStream(
-    chat.activeStreamId,
-  );
+  const url = new URL(request.url);
+  const startIndexValue = url.searchParams.get("startIndex");
+  const parsedStartIndex = startIndexValue
+    ? Number.parseInt(startIndexValue, 10)
+    : Number.NaN;
+  const startIndex = Number.isFinite(parsedStartIndex)
+    ? parsedStartIndex
+    : undefined;
 
-  if (!stream) {
-    // Stream no longer exists in Redis (expired or finished) — clear the stale
-    // activeStreamId so future page loads don't attempt another resume.
-    after(async () => {
-      await updateChatActiveStreamId(chatId, null);
+  try {
+    const run = getRun(runId);
+    return new Response(run.getReadable({ startIndex }), {
+      headers: UI_MESSAGE_STREAM_HEADERS,
     });
+  } catch {
     return new Response(null, { status: 204 });
   }
-
-  return new Response(stream, { headers: UI_MESSAGE_STREAM_HEADERS });
 }

@@ -5,6 +5,7 @@ import { isToolUIPart } from "ai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { WebAgentUIMessage } from "@/app/types";
 import { AbortableChatTransport } from "@/lib/abortable-chat-transport";
+import { parseStreamTokenValue } from "@/lib/chat-stream-token";
 import {
   abortChatInstanceTransport,
   getOrCreateChatInstance,
@@ -85,29 +86,64 @@ export function useSessionChatRuntime({
     contextLimitRef.current = contextLimit;
   }, [contextLimit]);
 
+  const workflowRunIdRef = useRef<string | null>(
+    parseStreamTokenValue(initialChatActiveStreamId ?? null),
+  );
+
+  useEffect(() => {
+    workflowRunIdRef.current = parseStreamTokenValue(
+      initialChatActiveStreamId ?? null,
+    );
+  }, [initialChatActiveStreamId]);
+
   const transport = useMemo(
     () =>
-      new AbortableChatTransport({
+      new AbortableChatTransport<WebAgentUIMessage>({
         api: "/api/chat",
-        body: () => {
+        prepareSendMessagesRequest: ({ messages }) => {
           const requestContextLimit = contextLimitRef.current;
+
           return {
-            sessionId,
-            chatId,
-            ...(requestContextLimit !== null
-              ? {
-                  context: {
-                    contextLimit: requestContextLimit,
-                  },
-                }
-              : {}),
+            api: "/api/chat",
+            body: {
+              messages,
+              sessionId,
+              chatId,
+              ...(requestContextLimit !== null
+                ? {
+                    context: {
+                      contextLimit: requestContextLimit,
+                    },
+                  }
+                : {}),
+            },
           };
         },
-        prepareReconnectToStreamRequest: ({ id }) => ({
-          api: `/api/chat/${id}/stream`,
-        }),
+        prepareReconnectToStreamRequest: ({ api, credentials, headers }) => {
+          const reconnectHeaders = new Headers(headers);
+          reconnectHeaders.set("x-chat-id", chatId);
+
+          const workflowRunId = workflowRunIdRef.current;
+
+          return {
+            api: workflowRunId
+              ? `/api/chat/${encodeURIComponent(workflowRunId)}/stream`
+              : api,
+            credentials,
+            headers: reconnectHeaders,
+          };
+        },
+        onChatSendMessage: (response) => {
+          const workflowRunId = response.headers.get("x-workflow-run-id");
+          if (workflowRunId) {
+            workflowRunIdRef.current = workflowRunId;
+          }
+        },
+        onChatEnd: () => {
+          workflowRunIdRef.current = null;
+        },
       }),
-    [sessionId, chatId],
+    [chatId, sessionId],
   );
 
   const { instance: chatInstance, alreadyExisted } = useMemo(
@@ -130,8 +166,9 @@ export function useSessionChatRuntime({
 
   const stopChatStream = useCallback(() => {
     userStoppedRef.current = true;
+    workflowRunIdRef.current = null;
 
-    // Publish a server-side stop signal, then tear down local transport state.
+    // Request server-side cancellation, then tear down local transport state.
     // We intentionally do not await this request so UI stop stays instant.
     void fetch(`/api/chat/${chatId}/stop`, {
       method: "POST",
@@ -146,7 +183,7 @@ export function useSessionChatRuntime({
   // retrigger `resumeStream()` and replay recent chunks on top of the live
   // stream, causing visible jank.
   const shouldResumeOnMountRef = useRef(
-    !!initialChatActiveStreamId &&
+    !!workflowRunIdRef.current &&
       (!alreadyExisted ||
         chatInstance.status === "ready" ||
         chatInstance.status === "error"),
@@ -201,6 +238,9 @@ export function useSessionChatRuntime({
 
           // Clear the error so the chat UI becomes visible again.
           chat.clearError();
+          if (!workflowRunIdRef.current) {
+            return;
+          }
           // If the server-side stream is still running, reconnect to it.
           await chat.resumeStream();
         } finally {

@@ -1,12 +1,10 @@
+import { getRun } from "workflow/api";
 import {
   requireAuthenticatedUser,
   requireOwnedChatById,
 } from "@/app/api/chat/_lib/chat-context";
-import {
-  createRedisClient,
-  isRedisConfigured,
-  warnRedisDisabled,
-} from "@/lib/redis";
+import { compareAndSetChatActiveStreamId } from "@/lib/db/sessions";
+import { parseStreamTokenValue } from "@/lib/chat-stream-token";
 
 type RouteContext = {
   params: Promise<{ chatId: string }>;
@@ -28,33 +26,24 @@ export async function POST(_request: Request, context: RouteContext) {
     return chatContext.response;
   }
 
-  // Publish stop signal via Redis pub/sub
-  if (!isRedisConfigured()) {
-    warnRedisDisabled("Chat stop endpoint");
-    return Response.json(
-      {
-        error:
-          "Stop signaling is unavailable because REDIS_URL/KV_URL is not configured.",
-      },
-      { status: 503 },
-    );
+  const activeStreamToken = chatContext.chat.activeStreamId;
+  if (!activeStreamToken) {
+    return Response.json({ success: true });
   }
 
-  const publisher = createRedisClient("stop-signal-publisher");
-  try {
-    await publisher.publish(`stop:${chatId}`, "stop");
-  } catch (error) {
-    console.error(
-      `[redis] Failed to publish stop signal for chat ${chatId}:`,
-      error,
-    );
-    return Response.json(
-      { error: "Failed to publish stop signal" },
-      { status: 502 },
-    );
-  } finally {
-    publisher.disconnect();
+  const runId = parseStreamTokenValue(activeStreamToken);
+  if (runId) {
+    try {
+      await getRun(runId).cancel();
+    } catch (error) {
+      console.warn(
+        `[chat] Failed to cancel workflow run ${runId} for chat ${chatId}:`,
+        error,
+      );
+    }
   }
+
+  await compareAndSetChatActiveStreamId(chatId, activeStreamToken, null);
 
   return Response.json({ success: true });
 }
