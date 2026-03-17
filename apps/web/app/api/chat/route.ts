@@ -2,6 +2,10 @@ import { createUIMessageStreamResponse, type InferUIMessageChunk } from "ai";
 import { start } from "workflow/api";
 import type { WebAgentUIMessage } from "@/app/types";
 import {
+  createChatMessageIfNotExists,
+  isFirstChatMessage,
+  touchChat,
+  updateChat,
   updateChatActiveStreamId,
   updateSession,
 } from "@/lib/db/sessions";
@@ -70,6 +74,11 @@ export async function POST(req: Request) {
       activityAt: requestStartedAt,
     }),
   });
+
+  // Persist the latest user message immediately (fire-and-forget) so it's
+  // in the DB before the workflow starts. This ensures a page refresh
+  // during workflow queue time still shows the message.
+  void persistLatestUserMessage(chatId, messages);
 
   const runtimePromise = createChatRuntime({
     userId,
@@ -151,4 +160,52 @@ export async function POST(req: Request) {
       "x-workflow-run-id": run.runId,
     },
   });
+}
+
+async function persistLatestUserMessage(
+  chatId: string,
+  messages: WebAgentUIMessage[],
+): Promise<void> {
+  const latestMessage = messages[messages.length - 1];
+  if (!latestMessage || latestMessage.role !== "user") {
+    return;
+  }
+
+  try {
+    const created = await createChatMessageIfNotExists({
+      id: latestMessage.id,
+      chatId,
+      role: "user",
+      parts: latestMessage,
+    });
+
+    if (!created) {
+      return;
+    }
+
+    await touchChat(chatId);
+
+    const shouldSetTitle = await isFirstChatMessage(chatId, created.id);
+    if (!shouldSetTitle) {
+      return;
+    }
+
+    const textContent = latestMessage.parts
+      .filter(
+        (part): part is { type: "text"; text: string } => part.type === "text",
+      )
+      .map((part) => part.text)
+      .join(" ")
+      .trim();
+
+    if (textContent.length > 0) {
+      const title =
+        textContent.length > 30
+          ? `${textContent.slice(0, 30)}...`
+          : textContent;
+      await updateChat(chatId, { title });
+    }
+  } catch (error) {
+    console.error("Failed to persist user message:", error);
+  }
 }

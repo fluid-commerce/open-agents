@@ -15,7 +15,6 @@ import {
   clearActiveStream,
   persistAssistantMessage,
   persistSandboxState,
-  persistUserMessage,
   recordWorkflowUsage,
   refreshDiffCache,
   runAutoCommitStep,
@@ -85,8 +84,7 @@ export async function runAgentWorkflow(options: Options) {
     throw new Error("runAgentWorkflow requires at least one message");
   }
 
-  const [, modelMessages, assistantId] = await Promise.all([
-    persistUserMessage(options.chatId, latestMessage),
+  const [modelMessages, assistantId] = await Promise.all([
     convertMessages(options.messages),
     latestMessage.role === "assistant"
       ? Promise.resolve(latestMessage.id)
