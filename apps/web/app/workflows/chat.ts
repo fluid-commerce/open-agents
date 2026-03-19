@@ -153,6 +153,16 @@ export async function runAgentWorkflow(options: Options) {
       }
     }
 
+    if (wasAborted) {
+      pendingAssistantResponse = {
+        ...pendingAssistantResponse,
+        metadata: {
+          ...pendingAssistantResponse.metadata,
+          wasInterrupted: true,
+        },
+      };
+    }
+
     // Always persist the assistant message — even on abort, save content
     // from completed steps so mid-stream output is not lost.
     await persistAssistantMessage(options.chatId, pendingAssistantResponse);

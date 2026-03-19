@@ -20,6 +20,7 @@ let agentStreamParts: Array<Record<string, unknown>> = [];
 let agentFinishReason = "stop";
 let agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
 let agentResponseMessages: unknown[] = [];
+let agentStreamError: Error | null = null;
 let streamOnFinishCallback:
   | ((args: { responseMessage: unknown }) => void)
   | undefined;
@@ -101,6 +102,9 @@ mock.module("@/app/config", () => ({
                   };
                 }
               }
+              if (agentStreamError) {
+                throw agentStreamError;
+              }
               if (streamOnFinishCallback) {
                 streamOnFinishCallback({
                   responseMessage: assistantMessage,
@@ -172,6 +176,7 @@ beforeEach(() => {
   agentFinishReason = "stop";
   agentTotalUsage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
   agentResponseMessages = [];
+  agentStreamError = null;
   streamOnFinishCallback = undefined;
   Object.values(spies).forEach((s) => s.mockClear());
 });
@@ -307,6 +312,29 @@ describe("runAgentWorkflow", () => {
         repoName: "repo",
       }),
     );
+  });
+
+  test("persists interrupted metadata and skips auto-commit when a run is aborted", async () => {
+    const abortError = new Error("Aborted");
+    abortError.name = "AbortError";
+    agentStreamError = abortError;
+
+    await runAgentWorkflow(
+      makeOptions({
+        autoCommitEnabled: true,
+        repoOwner: "acme",
+        repoName: "repo",
+      }),
+    );
+
+    const persistCalls = spies.persistAssistantMessage.mock
+      .calls as unknown[][];
+    const persistedMessage = persistCalls.at(-1)?.[1] as {
+      metadata?: { wasInterrupted?: boolean };
+    };
+
+    expect(persistedMessage.metadata?.wasInterrupted).toBe(true);
+    expect(spies.runAutoCommitStep).not.toHaveBeenCalled();
   });
 
   test("skips auto-commit when not enabled", async () => {

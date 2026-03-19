@@ -167,8 +167,10 @@ export function AssistantMessageGroups({
     [message, isStreaming],
   );
 
+  const wasInterrupted =
+    isInterrupted || message.metadata?.wasInterrupted === true;
   const showInterrupted =
-    !isStreaming && (isInterrupted || hasInterruptedToolCalls);
+    !isStreaming && (wasInterrupted || hasInterruptedToolCalls);
 
   // Force expand when there's an active approval the user needs to respond to
   const effectiveExpanded = isExpanded || hasActiveApproval;

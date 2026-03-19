@@ -24,6 +24,7 @@ export type WebAgentMessageMetadata = {
   lastStepFinishReason?: FinishReason;
   lastStepRawFinishReason?: string;
   stepFinishReasons?: WebAgentStepFinishMetadata[];
+  wasInterrupted?: boolean;
 };
 
 // All types derived from the agent

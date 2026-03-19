@@ -135,7 +135,15 @@ export function useSessionChatRuntime({
     // mid-step output before cancelling the workflow.
     const lastMessage = chatInstance.messages[chatInstance.messages.length - 1];
     const assistantMessage =
-      lastMessage?.role === "assistant" ? lastMessage : undefined;
+      lastMessage?.role === "assistant"
+        ? {
+            ...lastMessage,
+            metadata: {
+              ...lastMessage.metadata,
+              wasInterrupted: true,
+            },
+          }
+        : undefined;
 
     // We intentionally do not await this request so UI stop stays instant.
     void fetch(`/api/chat/${chatId}/stop`, {

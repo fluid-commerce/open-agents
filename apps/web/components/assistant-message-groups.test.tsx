@@ -94,9 +94,12 @@ describe("AssistantMessageGroups interrupted summary", () => {
     );
   });
 
-  test("marks a user-aborted assistant turn as interrupted even when no tool call is interrupted", () => {
+  test("marks a persisted interrupted assistant turn even when no tool call is interrupted", () => {
     const html = renderMessage(
       makeAssistantMessage({
+        metadata: {
+          wasInterrupted: true,
+        },
         parts: [
           {
             type: "tool-ask_user_question",
@@ -118,7 +121,6 @@ describe("AssistantMessageGroups interrupted summary", () => {
           },
         ],
       }),
-      { isInterrupted: true },
     );
 
     expect(html).toContain(
