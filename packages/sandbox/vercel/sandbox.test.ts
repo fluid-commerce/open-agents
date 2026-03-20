@@ -119,7 +119,7 @@ describe("VercelSandbox.connect", () => {
       remainingTimeout: 0,
     });
 
-    expect(getCalls).toEqual([{ name: "sbx-test", resume: false }]);
+    expect(getCalls).toEqual([{ name: "sbx-test", resume: true }]);
   });
 });
 
@@ -211,7 +211,7 @@ describe("VercelSandbox.create", () => {
     });
 
     expect(createCalls.length).toBe(1);
-    expect(createCalls[0]?.persistent).toBe(false);
+    expect(createCalls[0]?.persistent).toBe(true);
     expect(createCalls[0]?.source).toEqual({
       type: "snapshot",
       snapshotId: "snap-base-1",
@@ -235,7 +235,7 @@ describe("VercelSandbox.create", () => {
     });
 
     expect(createCalls.length).toBe(1);
-    expect(createCalls[0]?.persistent).toBe(false);
+    expect(createCalls[0]?.persistent).toBe(true);
     expect(createCalls[0]?.source).toEqual({
       type: "snapshot",
       snapshotId: "snap-base-1",

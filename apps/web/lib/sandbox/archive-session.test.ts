@@ -15,6 +15,8 @@ interface TestSessionRecord {
   sandboxState: {
     type: "vercel";
     sandboxId?: string;
+    sessionId?: string;
+    expiresAt?: number;
   } | null;
   snapshotUrl: string | null;
   lifecycleState: "active" | "archived" | null;
@@ -36,7 +38,6 @@ interface MockSandbox {
     timeoutMs: number,
   ) => Promise<MockSandboxExecResult>;
   stop: () => Promise<void>;
-  snapshot?: () => Promise<{ snapshotId: string }>;
 }
 
 type MockPullRequestStatusResult =
@@ -157,6 +158,8 @@ function makeSessionRecord(
     sandboxState: {
       type: "vercel",
       sandboxId: "sandbox-1",
+      sessionId: "sess-1",
+      expiresAt: Date.now() + 120_000,
     },
     snapshotUrl: null,
     lifecycleState: "active",
@@ -196,7 +199,7 @@ beforeEach(() => {
 });
 
 describe("archiveSession", () => {
-  test("clears runtime sandbox state when archive finalization fails without a snapshot", async () => {
+  test("clears runtime sandbox state while preserving persistent sandbox identity when finalization fails", async () => {
     const { archiveSession } = await archiveSessionModulePromise;
 
     let backgroundTask: Promise<void> | null = null;
@@ -226,16 +229,20 @@ describe("archiveSession", () => {
       sandboxExpiresAt: null,
       hibernateAfter: null,
       lifecycleError: "Archive finalization failed: sandbox connection failed",
-      sandboxState: { type: "vercel" },
+      sandboxState: { type: "vercel", sandboxId: "sandbox-1" },
     });
 
-    expect(sessionRecord?.sandboxState).toEqual({ type: "vercel" });
+    expect(sessionRecord?.sandboxState).toEqual({
+      type: "vercel",
+      sandboxId: "sandbox-1",
+    });
   });
 
-  test("preserves runtime sandbox state when archive finalization fails but snapshot already exists", async () => {
+  test("stops the persistent sandbox during archive finalization without creating a named snapshot", async () => {
     const { archiveSession } = await archiveSessionModulePromise;
 
-    sessionRecord = makeSessionRecord({ snapshotUrl: "snapshot-existing" });
+    const stopSpy = mock(async () => {});
+    sandboxQueue = [createMockSandbox(), createMockSandbox({ stop: stopSpy })];
 
     let backgroundTask: Promise<void> | null = null;
 
@@ -255,18 +262,17 @@ describe("archiveSession", () => {
     const updateCalls = spies.updateSession.mock.calls as Array<
       [string, Record<string, unknown>]
     >;
+    const finalPatch = updateCalls.at(-1)?.[1];
 
-    expect(updateCalls).toHaveLength(2);
-    const recoveryPatch = updateCalls[1]?.[1];
-
-    expect(recoveryPatch?.lifecycleError).toBe(
-      "Archive finalization failed: sandbox connection failed",
-    );
-    expect(recoveryPatch?.sandboxState).toBeUndefined();
-    expect(sessionRecord?.sandboxState).toEqual({
-      type: "vercel",
-      sandboxId: "sandbox-1",
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expect(finalPatch).toMatchObject({
+      sandboxState: { type: "vercel", sandboxId: "sandbox-1" },
+      lifecycleState: "archived",
+      sandboxExpiresAt: null,
+      hibernateAfter: null,
+      lifecycleError: null,
     });
+    expect(finalPatch).not.toHaveProperty("snapshotUrl");
   });
 
   test("refreshes merged PR status before archiving", async () => {

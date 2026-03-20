@@ -22,6 +22,7 @@ let sessionRecord: {
   sandboxState: {
     type: "vercel";
     sandboxId?: string;
+    sessionId?: string;
     expiresAt?: number;
   };
   lastActivityAt: Date | null;
@@ -46,6 +47,16 @@ mock.module("@/lib/db/sessions", () => ({
 }));
 
 mock.module("@/lib/sandbox/lifecycle", () => ({
+  buildActiveLifecycleUpdate: (
+    state: { expiresAt?: unknown } | null | undefined,
+  ) => ({
+    lifecycleState: "active",
+    lifecycleError: null,
+    lastActivityAt: new Date(),
+    hibernateAfter: new Date(Date.now() + 10_000),
+    sandboxExpiresAt:
+      typeof state?.expiresAt === "number" ? new Date(state.expiresAt) : null,
+  }),
   buildHibernatedLifecycleUpdate: () => ({
     lifecycleState: "hibernated",
     sandboxExpiresAt: null,
@@ -63,6 +74,7 @@ mock.module("@open-harness/sandbox", () => ({
   connectSandbox: async (state: {
     type: "vercel";
     sandboxId?: string;
+    sessionId?: string;
     expiresAt?: number;
   }) => {
     const expiresAt = Date.now() + 2 * 60_000;
@@ -73,6 +85,7 @@ mock.module("@open-harness/sandbox", () => ({
       getState: () => ({
         ...state,
         ...(state.sandboxId ? { sandboxId: state.sandboxId } : {}),
+        sessionId: "sess-1",
         expiresAt,
       }),
     };
@@ -129,6 +142,42 @@ describe("/api/sandbox/reconnect", () => {
     expect(updateCalls[0]?.sessionId).toBe("session-1");
     expect(updateCalls[0]?.patch.lifecycleState).toBe("active");
     expect(updateCalls[0]?.patch.lifecycleError).toBeNull();
+  });
+
+  test("resumes a paused persistent sandbox when only sandbox identity remains", async () => {
+    const { GET } = await routeModulePromise;
+
+    sessionRecord.lifecycleState = "hibernated";
+    sessionRecord.sandboxState = {
+      type: "vercel",
+      sandboxId: "sbx-1",
+    };
+    sessionRecord.sandboxExpiresAt = null;
+    sessionRecord.hibernateAfter = null;
+
+    const response = await GET(
+      new Request("http://localhost/api/sandbox/reconnect?sessionId=session-1"),
+    );
+    const payload = (await response.json()) as {
+      status: string;
+      expiresAt?: number;
+      lifecycle: { state: string | null };
+    };
+
+    expect(response.ok).toBe(true);
+    expect(payload.status).toBe("connected");
+    expect(payload.lifecycle.state).toBe("active");
+    expect(typeof payload.expiresAt).toBe("number");
+
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0]?.patch.lifecycleState).toBe("active");
+    expect(updateCalls[0]?.patch.lifecycleError).toBeNull();
+    expect(updateCalls[0]?.patch.sandboxState).toEqual({
+      type: "vercel",
+      sandboxId: "sbx-1",
+      sessionId: "sess-1",
+      expiresAt: expect.any(Number),
+    });
   });
 
   test("marks sandbox expired when the reconnect probe hits a 410", async () => {

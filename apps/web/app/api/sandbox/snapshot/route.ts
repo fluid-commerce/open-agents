@@ -137,6 +137,7 @@ export async function PUT(req: Request) {
   }
 
   const { sessionRecord } = sessionContext;
+  const sandboxTypeLabel = sessionRecord.sandboxState?.type ?? "null";
 
   // If archive finalization is still running, return 409 until the background
   // task either stores a snapshot or clears runtime sandbox state after a
@@ -144,7 +145,7 @@ export async function PUT(req: Request) {
   if (!sessionRecord.snapshotUrl) {
     if (hasRuntimeSandboxState(sessionRecord.sandboxState)) {
       console.warn(
-        `[Snapshot Restore] session=${sessionId} pending=true sandboxType=${sessionRecord.sandboxState?.type ?? "null"}`,
+        `[Snapshot Restore] session=${sessionId} pending=true sandboxType=${sandboxTypeLabel}`,
       );
       return Response.json(
         {
@@ -156,7 +157,7 @@ export async function PUT(req: Request) {
     }
 
     console.error(
-      `[Snapshot Restore] session=${sessionId} error=no_snapshot sandboxType=${sessionRecord.sandboxState?.type ?? "null"}`,
+      `[Snapshot Restore] session=${sessionId} error=no_snapshot sandboxType=${sandboxTypeLabel}`,
     );
     return Response.json(
       { error: "No snapshot available for this session" },

@@ -468,7 +468,7 @@ function SandboxInputOverlay({
           <Archive className="h-4 w-4" />
           <span className="text-sm">
             {snapshotPending
-              ? "Snapshot in progress. Unarchive will be available in a few seconds."
+              ? "Sandbox is still stopping. Unarchive will be available in a few seconds."
               : "This session is archived. Unarchive it to resume."}
           </span>
         </div>
@@ -1660,41 +1660,6 @@ export function SessionChatContent({
     [attemptReconnection, syncSandboxStatus],
   );
 
-  const handleResumeSandbox = useCallback(async () => {
-    if (hasPersistentSandboxState) {
-      setIsRestoringSnapshot(true);
-      setRestoreError(null);
-
-      try {
-        const reconnected = await waitForSandboxReady();
-        if (!reconnected) {
-          setRestoreError(
-            hasSnapshot
-              ? "Persistent sandbox resume did not complete. Try Resume sandbox again or restore the saved snapshot."
-              : "Persistent sandbox resume did not complete yet. Try again in a few seconds.",
-          );
-          return;
-        }
-
-        void requestStatusSync("force");
-      } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : String(err);
-        setRestoreError(`Failed to resume sandbox: ${errorMsg}`);
-      } finally {
-        setIsRestoringSnapshot(false);
-      }
-      return;
-    }
-
-    await handleRestoreSnapshot();
-  }, [
-    hasPersistentSandboxState,
-    hasSnapshot,
-    requestStatusSync,
-    waitForSandboxReady,
-    handleRestoreSnapshot,
-  ]);
-
   const handleRestoreSnapshot = useCallback(async () => {
     setIsRestoringSnapshot(true);
     setRestoreError(null);
@@ -1779,6 +1744,41 @@ export function SessionChatContent({
     setSandboxTypeFromUnknown,
     requestStatusSync,
     waitForSandboxReady,
+  ]);
+
+  const handleResumeSandbox = useCallback(async () => {
+    if (hasPersistentSandboxState) {
+      setIsRestoringSnapshot(true);
+      setRestoreError(null);
+
+      try {
+        const reconnected = await waitForSandboxReady();
+        if (!reconnected) {
+          setRestoreError(
+            hasSnapshot
+              ? "Persistent sandbox resume did not complete. Try Resume sandbox again or restore the saved snapshot."
+              : "Persistent sandbox resume did not complete yet. Try again in a few seconds.",
+          );
+          return;
+        }
+
+        void requestStatusSync("force");
+      } catch (err) {
+        const errorMsg = err instanceof Error ? err.message : String(err);
+        setRestoreError(`Failed to resume sandbox: ${errorMsg}`);
+      } finally {
+        setIsRestoringSnapshot(false);
+      }
+      return;
+    }
+
+    await handleRestoreSnapshot();
+  }, [
+    hasPersistentSandboxState,
+    hasSnapshot,
+    requestStatusSync,
+    waitForSandboxReady,
+    handleRestoreSnapshot,
   ]);
 
   const handleCreateNewSandbox = useCallback(async () => {
@@ -1953,10 +1953,14 @@ export function SessionChatContent({
     }
   }, [sandboxInfo, reconnectionStatus]);
 
-  // Auto-resume paused sessions on entry once we know there is no active runtime sandbox.
-  // Skip for archived sessions.
+  // Auto-restore legacy snapshot-only sessions on entry once we know there is
+  // no persistent sandbox identity left to resume.
   useEffect(() => {
     if (isArchived) return;
+    if (hasPersistentSandboxState) {
+      hasAutoRestoredSnapshotRef.current = false;
+      return;
+    }
     if (!hasSnapshot) {
       hasAutoRestoredSnapshotRef.current = false;
       return;
@@ -1972,6 +1976,7 @@ export function SessionChatContent({
     void handleRestoreSnapshot();
   }, [
     isArchived,
+    hasPersistentSandboxState,
     session.id,
     hasSnapshot,
     sandboxInfo,
@@ -2228,15 +2233,15 @@ export function SessionChatContent({
     }
   }, [questionToolCallId, addToolOutput]);
 
+  const hasResumableSandbox = hasPersistentSandboxState || hasSnapshot;
   const isReconnectingSandbox =
     reconnectionStatus === "checking" &&
     !sandboxInfo &&
     !isCreatingSandbox &&
     !isRestoringSnapshot;
   const isHibernatingTransition =
-    isReconnectingSandbox && hasSnapshot && !hasRuntimeSandboxState;
-  const isArchiveSnapshotPending =
-    isArchived && !hasSnapshot && hasRuntimeSandboxState;
+    isReconnectingSandbox && hasResumableSandbox && !hasRuntimeSandboxState;
+  const isArchiveSnapshotPending = isArchived && hasRuntimeSandboxState;
   const isServerHibernating = lifecycleTiming.state === "hibernating";
   const isServerRestoring = lifecycleTiming.state === "restoring";
   const isServerHibernated = lifecycleTiming.state === "hibernated";
@@ -2276,7 +2281,7 @@ export function SessionChatContent({
       };
     }
     // Server says hibernated — show Paused regardless of local sandboxInfo
-    if (isServerHibernated && hasSnapshot) {
+    if (isServerHibernated && hasResumableSandbox) {
       return { label: "Paused", className: "bg-muted text-muted-foreground" };
     }
     if (isSandboxActive) {
@@ -2285,7 +2290,7 @@ export function SessionChatContent({
         className: "bg-emerald-500/15 text-emerald-700",
       };
     }
-    if (hasSnapshot) {
+    if (hasResumableSandbox) {
       return { label: "Paused", className: "bg-muted text-muted-foreground" };
     }
     if (reconnectionStatus === "failed") {
@@ -2303,7 +2308,7 @@ export function SessionChatContent({
     isHibernatingUi,
     isReconnectingSandbox,
     isServerHibernated,
-    hasSnapshot,
+    hasResumableSandbox,
     isSandboxActive,
     reconnectionStatus,
   ]);
@@ -3344,8 +3349,8 @@ export function SessionChatContent({
                 isArchived={isArchived}
                 isInitializing={reconnectionStatus === "idle"}
                 snapshotPending={isArchiveSnapshotPending}
-                hasSnapshot={hasSnapshot}
-                onRestore={handleRestoreSnapshot}
+                hasSnapshot={hasResumableSandbox}
+                onRestore={handleResumeSandbox}
                 onCreateNew={handleCreateNewSandbox}
               />
 

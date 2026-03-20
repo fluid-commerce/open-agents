@@ -34,7 +34,7 @@ function canUseOptimisticAttach(options?: ConnectOptions): boolean {
 /**
  * Connect to the Vercel-backed cloud sandbox based on the provided state.
  *
- * - If `sandboxId` is present, reconnects to an existing running VM
+ * - If `sandboxId` is present, reconnects to an existing sandbox and resumes it when needed
  * - If `snapshotId` is present (without sandboxId), restores from native snapshot
  * - If `source` is present, creates a new VM and prepares the repo
  * - Otherwise, creates an empty sandbox

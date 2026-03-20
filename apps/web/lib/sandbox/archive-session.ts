@@ -7,10 +7,7 @@ import {
   getPullRequestStatus,
 } from "@/lib/github/client";
 import { getRepoToken } from "@/lib/github/get-repo-token";
-import {
-  clearSandboxState,
-  hasRuntimeSandboxState,
-} from "./utils";
+import { clearSandboxState, hasRuntimeSandboxState } from "./utils";
 
 type SessionRecord = NonNullable<Awaited<ReturnType<typeof getSessionById>>>;
 type SessionUpdateInput = Parameters<typeof updateSession>[1];

@@ -12,7 +12,6 @@ import {
 } from "@/lib/sandbox/lifecycle";
 import {
   clearSandboxIdentity,
-  clearSandboxState,
   hasPersistentSandboxState,
   hasRuntimeSandboxState,
   isSandboxUnavailableError,
@@ -126,7 +125,8 @@ export async function GET(req: Request): Promise<Response> {
       } as SandboxState);
 
     const resumedFromPaused =
-      !hasRuntimeSandboxState(state) || sessionRecord.lifecycleState === "hibernated";
+      !hasRuntimeSandboxState(state) ||
+      sessionRecord.lifecycleState === "hibernated";
     const shouldRecoverFailedLifecycle =
       sessionRecord.lifecycleState === "failed";
 

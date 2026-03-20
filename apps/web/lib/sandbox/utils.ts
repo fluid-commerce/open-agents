@@ -72,6 +72,10 @@ export function hasPersistentSandboxState(
 /**
  * Check if an unknown value represents sandbox state with active runtime data.
  */
+export function hasRuntimeSandboxState(
+  state: SandboxState | null | undefined,
+): state is SandboxState;
+export function hasRuntimeSandboxState(state: unknown): boolean;
 export function hasRuntimeSandboxState(state: unknown): boolean {
   if (getPersistentSandboxId(state) === null) {
     return false;

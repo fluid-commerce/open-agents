@@ -50,7 +50,9 @@ export async function GET(req: Request): Promise<Response> {
 
   const { sessionRecord } = sessionContext;
   let effectiveSessionRecord = sessionRecord;
-  const hasPersistentState = hasPersistentSandboxState(sessionRecord.sandboxState);
+  const hasPersistentState = hasPersistentSandboxState(
+    sessionRecord.sandboxState,
+  );
   const hasRuntimeState = hasRuntimeSandboxState(sessionRecord.sandboxState);
 
   // Check expiry: the DB may still have runtime state after the session has expired.
