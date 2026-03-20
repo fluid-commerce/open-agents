@@ -20,6 +20,10 @@ import {
 } from "@/lib/sandbox/lifecycle";
 import { kickSandboxLifecycleWorkflow } from "@/lib/sandbox/lifecycle-kick";
 import {
+  getVercelCliSandboxSetup,
+  syncVercelCliAuthToSandbox,
+} from "@/lib/sandbox/vercel-cli-auth";
+import {
   canOperateOnSandbox,
   clearSandboxState,
   hasRuntimeSandboxState,
@@ -65,6 +69,22 @@ async function syncVercelProjectEnvVarsToSandbox(params: {
     dotenvContent,
     "utf-8",
   );
+}
+
+async function syncVercelCliAuthForSandbox(params: {
+  userId: string;
+  sessionRecord: SessionRecord;
+  sandbox: Awaited<ReturnType<typeof connectSandbox>>;
+}): Promise<void> {
+  const setup = await getVercelCliSandboxSetup({
+    userId: params.userId,
+    sessionRecord: params.sessionRecord,
+  });
+
+  await syncVercelCliAuthToSandbox({
+    sandbox: params.sandbox,
+    setup,
+  });
 }
 
 export async function POST(req: Request) {
@@ -168,6 +188,22 @@ export async function POST(req: Request) {
         ),
         ...buildActiveLifecycleUpdate(nextState),
       });
+
+      if (sessionRecord) {
+        try {
+          await syncVercelCliAuthForSandbox({
+            userId: session.user.id,
+            sessionRecord,
+            sandbox,
+          });
+        } catch (error) {
+          console.error(
+            `Failed to prepare Vercel CLI auth for session ${sessionRecord.id}:`,
+            error,
+          );
+        }
+      }
+
       kickSandboxLifecycleWorkflow({
         sessionId,
         reason: "sandbox-created",
@@ -232,6 +268,19 @@ export async function POST(req: Request) {
       } catch (error) {
         console.error(
           `Failed to sync Vercel env vars for session ${sessionRecord.id}:`,
+          error,
+        );
+      }
+
+      try {
+        await syncVercelCliAuthForSandbox({
+          userId: session.user.id,
+          sessionRecord,
+          sandbox,
+        });
+      } catch (error) {
+        console.error(
+          `Failed to prepare Vercel CLI auth for session ${sessionRecord.id}:`,
           error,
         );
       }
