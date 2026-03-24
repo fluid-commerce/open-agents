@@ -25,8 +25,8 @@ export default function Loading() {
           <div className="flex min-w-0 items-center gap-2 lg:gap-4">
             <Link
               href="/sessions"
-              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              aria-label="Back to inbox"
+              className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground min-[900px]:hidden"
+              aria-label="Back to Mission Control"
             >
               <ArrowLeft className="size-4" />
             </Link>

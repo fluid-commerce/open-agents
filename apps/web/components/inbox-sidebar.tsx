@@ -1,29 +1,35 @@
 "use client";
 
 import {
-  Archive,
-  EllipsisVertical,
-  ExternalLink,
-  GitMerge,
-  GitPullRequest,
+  ArrowLeft,
+  ArrowUpRight,
+  CheckCircle2,
+  History,
   Loader2,
-  Pencil,
   Plus,
   Settings,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ComponentType } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { InboxSidebarRenameDialog } from "@/components/inbox-sidebar-rename-dialog";
+import { MissionControlSection } from "@/components/mission-control-section";
+import { MissionControlSessionCard } from "@/components/mission-control-session-card";
+import {
+  getMissionControlLane,
+  sortSessionsByRecentActivity,
+  sortSessionsForMissionControl,
+} from "@/components/mission-control-session";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { useSession } from "@/hooks/use-session";
 import type { SessionWithUnread } from "@/hooks/use-sessions";
 import type { Session as AuthSession } from "@/lib/session/types";
@@ -53,32 +59,9 @@ type ArchivedSessionsResponse = {
   error?: string;
 };
 
-type InboxFilter = "action" | "waiting" | "all";
+type MissionControlView = "mission-control" | "history";
 
 const ARCHIVED_SESSIONS_PAGE_SIZE = 50;
-
-const sessionRowPerformanceStyle: CSSProperties = {
-  contentVisibility: "auto",
-  containIntrinsicSize: "3.25rem",
-};
-
-function formatRelativeTime(date: Date): string {
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60_000);
-  const diffHours = Math.floor(diffMs / 3_600_000);
-  const diffDays = Math.floor(diffMs / 86_400_000);
-
-  if (diffMins < 1) return "now";
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  if (diffDays < 7) return `${diffDays}d`;
-
-  return date.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
 
 function getAvatarFallback(username: string): string {
   const normalized = username.trim();
@@ -89,321 +72,68 @@ function getAvatarFallback(username: string): string {
   return normalized.slice(0, 2).toUpperCase();
 }
 
-function isWaitingOnAgent(session: SessionWithUnread): boolean {
-  return session.hasStreaming;
-}
-
-/**
- * A session needs action when the agent has responded and the user hasn't
- * replied yet (needsResponse), OR when a PR is open and ready for review.
- * Streaming sessions are excluded — they're "waiting", not "action".
- */
-function needsAction(session: SessionWithUnread): boolean {
-  return (
-    !session.hasStreaming &&
-    (session.needsResponse || session.prStatus === "open")
-  );
-}
-
-function getInboxPriority(session: SessionWithUnread): number {
-  if (needsAction(session)) return 0;
-  if (isWaitingOnAgent(session)) return 1;
-  if (session.prStatus === "merged") return 2;
-  return 3;
-}
-
-function sortSessionsForInbox(
-  sessions: SessionWithUnread[],
-): SessionWithUnread[] {
-  return [...sessions].sort((left, right) => {
-    const priorityDelta = getInboxPriority(left) - getInboxPriority(right);
-    if (priorityDelta !== 0) {
-      return priorityDelta;
-    }
-
-    return (
-      new Date(right.lastActivityAt ?? right.createdAt).getTime() -
-      new Date(left.lastActivityAt ?? left.createdAt).getTime()
-    );
-  });
-}
-
-/** Repo · branch text for the metadata line (excludes PR — that's a badge). */
-function getRepoMeta(session: SessionWithUnread): string | null {
-  const parts: string[] = [];
-
-  if (session.repoOwner && session.repoName) {
-    parts.push(`${session.repoOwner}/${session.repoName}`);
-  } else if (session.repoName) {
-    parts.push(session.repoName);
-  }
-
-  if (session.branch) {
-    parts.push(session.branch);
-  }
-
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-function getGitHubPrUrl(session: SessionWithUnread): string | null {
-  if (!session.prNumber || !session.repoOwner || !session.repoName) return null;
-  return `https://github.com/${session.repoOwner}/${session.repoName}/pull/${session.prNumber}`;
-}
-
-function getGitHubRepoUrl(session: SessionWithUnread): string | null {
-  if (!session.repoOwner || !session.repoName) return null;
-  return `https://github.com/${session.repoOwner}/${session.repoName}`;
-}
-
-function PrBadge({ session }: { session: SessionWithUnread }) {
-  if (!session.prNumber) return null;
-
-  const isMerged = session.prStatus === "merged";
-
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-px text-[10px] font-medium",
-        isMerged
-          ? "border-purple-500/20 bg-purple-500/10 text-purple-700 dark:text-purple-400"
-          : "border-green-500/20 bg-green-500/10 text-green-700 dark:text-green-400",
-      )}
-    >
-      {isMerged ? (
-        <GitMerge className="h-2.5 w-2.5" />
-      ) : (
-        <GitPullRequest className="h-2.5 w-2.5" />
-      )}
-      #{session.prNumber}
-    </span>
-  );
-}
-
-function DiffStats({
-  added,
-  removed,
+function SummaryStat({
+  label,
+  value,
+  icon: Icon,
+  tone,
 }: {
-  added: number | null;
-  removed: number | null;
+  label: string;
+  value: number;
+  icon: ComponentType<{ className?: string }>;
+  tone: "needs-you" | "running" | "completed";
 }) {
-  if (added === null && removed === null) return null;
-
-  return (
-    <span className="ml-auto flex shrink-0 items-center gap-0.5 font-mono text-[10px]">
-      {added !== null ? (
-        <span className="text-green-600 dark:text-green-500">+{added}</span>
-      ) : null}
-      {removed !== null ? (
-        <span className="text-red-600 dark:text-red-400">-{removed}</span>
-      ) : null}
-    </span>
-  );
-}
-
-type SessionRowProps = {
-  session: SessionWithUnread;
-  isActive: boolean;
-  isPending: boolean;
-  isFocused: boolean;
-  onSessionClick: (session: SessionWithUnread) => void;
-  onSessionPrefetch: (session: SessionWithUnread) => void;
-  onOpenRenameDialog: (session: SessionWithUnread) => void;
-  onArchiveSession: (session: SessionWithUnread) => void;
-};
-
-const SessionRow = memo(function SessionRow({
-  session,
-  isActive,
-  isPending,
-  isFocused,
-  onSessionClick,
-  onSessionPrefetch,
-  onOpenRenameDialog,
-  onArchiveSession,
-}: SessionRowProps) {
-  const hasAction = needsAction(session);
-  const isWorking = isWaitingOnAgent(session);
-  const isHighlighted = hasAction || isWorking;
-  const lastActivityLabel = useMemo(
-    () =>
-      formatRelativeTime(new Date(session.lastActivityAt ?? session.createdAt)),
-    [session.createdAt, session.lastActivityAt],
-  );
-  const repoMeta = getRepoMeta(session);
-  const hasSecondLine =
-    Boolean(repoMeta) ||
-    Boolean(session.prNumber) ||
-    session.linesAdded !== null ||
-    session.linesRemoved !== null;
-  const prUrl = getGitHubPrUrl(session);
-  const repoUrl = getGitHubRepoUrl(session);
-
   return (
     <div
       className={cn(
-        "group relative border-b border-border/50 transition-colors",
-        isActive
-          ? "bg-accent/50"
-          : isFocused
-            ? "bg-accent/30"
-            : "hover:bg-accent/30",
-        isPending ? "opacity-70" : "opacity-100",
+        "rounded-2xl border px-3 py-3 shadow-sm",
+        tone === "needs-you"
+          ? "border-amber-500/20 bg-amber-500/5"
+          : tone === "running"
+            ? "border-sky-500/20 bg-sky-500/5"
+            : "border-emerald-500/20 bg-emerald-500/5",
       )}
-      style={sessionRowPerformanceStyle}
-      data-session-id={session.id}
     >
-      <button
-        type="button"
-        onClick={() => onSessionClick(session)}
-        onMouseEnter={() => onSessionPrefetch(session)}
-        onFocus={() => onSessionPrefetch(session)}
-        className="flex w-full items-start gap-3 px-4 py-2.5 pr-8 text-left"
-        tabIndex={-1}
-        aria-busy={isPending}
-      >
-        {/* Status dot — aligned to first line of text */}
-        <div className="mt-[7px] w-2 shrink-0">
-          {isWorking ? (
-            <span className="block h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" />
-          ) : hasAction ? (
-            <span className="block h-1.5 w-1.5 rounded-full bg-foreground" />
-          ) : null}
-        </div>
-
-        {/* Two-line content */}
-        <div className="min-w-0 flex-1">
-          {/* Line 1: title + timestamp */}
-          <div className="flex items-baseline gap-2">
-            <p
-              className={cn(
-                "min-w-0 flex-1 truncate text-sm",
-                isHighlighted
-                  ? "font-semibold text-foreground"
-                  : "text-foreground",
-              )}
-            >
-              {session.title}
-            </p>
-            <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-              {isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              <span className="tabular-nums">{lastActivityLabel}</span>
-            </span>
-          </div>
-
-          {/* Line 2: repo · branch + PR badge + diff stats */}
-          {hasSecondLine ? (
-            <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-              {repoMeta ? (
-                <span className="min-w-0 truncate font-mono">{repoMeta}</span>
-              ) : null}
-              <PrBadge session={session} />
-              <DiffStats
-                added={session.linesAdded}
-                removed={session.linesRemoved}
-              />
-            </div>
-          ) : null}
-        </div>
-      </button>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            onClick={(e) => e.stopPropagation()}
-            className="absolute right-2 top-2.5 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground group-hover:opacity-100 data-[state=open]:opacity-100"
-            tabIndex={-1}
-            aria-label={`Open menu for ${session.title}`}
-          >
-            <EllipsisVertical className="h-3.5 w-3.5" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem
-            onClick={() => onSessionClick(session)}
-            className="gap-2"
-          >
-            <ExternalLink className="h-3.5 w-3.5" />
-            <span>Open session</span>
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={() => onOpenRenameDialog(session)}
-            className="gap-2"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            <span>Rename</span>
-          </DropdownMenuItem>
-          {session.status !== "archived" ? (
-            <DropdownMenuItem
-              onClick={() => onArchiveSession(session)}
-              className="gap-2"
-            >
-              <Archive className="h-3.5 w-3.5" />
-              <span>Archive</span>
-            </DropdownMenuItem>
-          ) : null}
-          {prUrl || repoUrl ? <DropdownMenuSeparator /> : null}
-          {prUrl ? (
-            <DropdownMenuItem
-              onClick={() =>
-                window.open(prUrl, "_blank", "noopener,noreferrer")
-              }
-              className="gap-2"
-            >
-              {session.prStatus === "merged" ? (
-                <GitMerge className="h-3.5 w-3.5" />
-              ) : (
-                <GitPullRequest className="h-3.5 w-3.5" />
-              )}
-              <span>
-                {session.prStatus === "merged" ? "View merged PR" : "View PR"} #
-                {session.prNumber}
-              </span>
-            </DropdownMenuItem>
-          ) : null}
-          {repoUrl ? (
-            <DropdownMenuItem
-              onClick={() =>
-                window.open(repoUrl, "_blank", "noopener,noreferrer")
-              }
-              className="gap-2"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              <span>View on GitHub</span>
-            </DropdownMenuItem>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+        <Icon className="h-3.5 w-3.5" />
+        <span>{label}</span>
+      </div>
+      <div className="mt-3 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
+        {value}
+      </div>
     </div>
   );
-}, areSessionRowsEqual);
+}
 
-function areSessionRowsEqual(
-  prev: SessionRowProps,
-  next: SessionRowProps,
-): boolean {
-  if (
-    prev.isActive !== next.isActive ||
-    prev.isPending !== next.isPending ||
-    prev.isFocused !== next.isFocused
-  ) {
-    return false;
-  }
-
+function MissionControlSkeleton() {
   return (
-    prev.session.id === next.session.id &&
-    prev.session.title === next.session.title &&
-    prev.session.hasStreaming === next.session.hasStreaming &&
-    prev.session.hasUnread === next.session.hasUnread &&
-    prev.session.needsResponse === next.session.needsResponse &&
-    prev.session.repoOwner === next.session.repoOwner &&
-    prev.session.repoName === next.session.repoName &&
-    prev.session.branch === next.session.branch &&
-    prev.session.prNumber === next.session.prNumber &&
-    prev.session.prStatus === next.session.prStatus &&
-    prev.session.linesAdded === next.session.linesAdded &&
-    prev.session.linesRemoved === next.session.linesRemoved &&
-    String(prev.session.lastActivityAt) === String(next.session.lastActivityAt)
+    <div className="space-y-4 px-4 py-4">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={index}
+          className="rounded-2xl border border-border/70 bg-background/80 p-4 shadow-sm"
+        >
+          <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+          <div className="mt-2 h-3 w-52 animate-pulse rounded bg-muted" />
+          <div className="mt-4 space-y-3">
+            {Array.from({ length: 2 }).map((__, cardIndex) => (
+              <div
+                key={cardIndex}
+                className="rounded-2xl border border-border/70 p-4"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="h-6 w-24 animate-pulse rounded-full bg-muted" />
+                  <div className="ml-auto h-4 w-16 animate-pulse rounded bg-muted" />
+                </div>
+                <div className="mt-3 h-4 w-2/3 animate-pulse rounded bg-muted" />
+                <div className="mt-2 h-4 w-full animate-pulse rounded bg-muted" />
+                <div className="mt-3 h-7 w-40 animate-pulse rounded-full bg-muted" />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -422,10 +152,8 @@ export function InboxSidebar({
 }: InboxSidebarProps) {
   const router = useRouter();
   const { session } = useSession();
-  const [showArchived, setShowArchived] = useState(false);
-  const [activeFilter, setActiveFilter] = useState<InboxFilter>("action");
-  const [focusedIndex, setFocusedIndex] = useState(-1);
-  const listRef = useRef<HTMLDivElement>(null);
+  const [activeView, setActiveView] =
+    useState<MissionControlView>("mission-control");
   const [archivedSessions, setArchivedSessions] = useState<SessionWithUnread[]>(
     [],
   );
@@ -459,7 +187,7 @@ export function InboxSidebar({
         const data = (await res.json()) as ArchivedSessionsResponse;
 
         if (!res.ok) {
-          throw new Error(data.error ?? "Failed to load archived sessions");
+          throw new Error(data.error ?? "Failed to load history");
         }
 
         setArchivedSessions((current) => {
@@ -467,9 +195,11 @@ export function InboxSidebar({
             return data.sessions;
           }
 
-          const existingIds = new Set(current.map((s) => s.id));
+          const existingIds = new Set(
+            current.map((targetSession) => targetSession.id),
+          );
           const nextSessions = data.sessions.filter(
-            (s) => !existingIds.has(s.id),
+            (targetSession) => !existingIds.has(targetSession.id),
           );
 
           return [...current, ...nextSessions];
@@ -478,9 +208,7 @@ export function InboxSidebar({
         setHasMoreArchivedSessions(Boolean(data.pagination?.hasMore));
       } catch (error) {
         const message =
-          error instanceof Error
-            ? error.message
-            : "Failed to load archived sessions";
+          error instanceof Error ? error.message : "Failed to load history";
         setArchivedSessionsError(message);
       } finally {
         archivedRequestInFlightRef.current = false;
@@ -491,7 +219,7 @@ export function InboxSidebar({
   );
 
   useEffect(() => {
-    if (!showArchived) {
+    if (activeView !== "history") {
       return;
     }
 
@@ -508,47 +236,47 @@ export function InboxSidebar({
     }
 
     void fetchArchivedSessionsPage({ offset: 0, replace: true });
-  }, [archivedCount, fetchArchivedSessionsPage, showArchived]);
+  }, [activeView, archivedCount, fetchArchivedSessionsPage]);
 
-  const activeSessions = useMemo(
-    () => sortSessionsForInbox(sessions),
-    [sessions],
-  );
+  const missionControlSessions = useMemo(() => {
+    const grouped = {
+      needsYou: [] as SessionWithUnread[],
+      running: [] as SessionWithUnread[],
+      completed: [] as SessionWithUnread[],
+    };
+
+    for (const targetSession of sortSessionsForMissionControl(sessions)) {
+      const lane = getMissionControlLane(targetSession);
+      if (lane === "needs-you") {
+        grouped.needsYou.push(targetSession);
+      } else if (lane === "running") {
+        grouped.running.push(targetSession);
+      } else {
+        grouped.completed.push(targetSession);
+      }
+    }
+
+    return grouped;
+  }, [sessions]);
+  const missionControlCounts = {
+    needsYou: missionControlSessions.needsYou.length,
+    running: missionControlSessions.running.length,
+    completed: missionControlSessions.completed.length,
+  };
   const sortedArchivedSessions = useMemo(
-    () => sortSessionsForInbox(archivedSessions),
+    () => sortSessionsByRecentActivity(archivedSessions),
     [archivedSessions],
   );
-  const counts = useMemo(
-    () => ({
-      needsAction: activeSessions.filter(needsAction).length,
-      waiting: activeSessions.filter(isWaitingOnAgent).length,
-      total: activeSessions.length,
-    }),
-    [activeSessions],
-  );
-  const filteredActiveSessions = useMemo(() => {
-    if (activeFilter === "action") {
-      return activeSessions.filter(needsAction);
-    }
-
-    if (activeFilter === "waiting") {
-      return activeSessions.filter(isWaitingOnAgent);
-    }
-
-    return activeSessions;
-  }, [activeFilter, activeSessions]);
-  const displayedSessions = showArchived
-    ? sortedArchivedSessions
-    : filteredActiveSessions;
-  const showLoadingSkeleton =
-    (!showArchived && sessionsLoading && sessions.length === 0) ||
-    (showArchived && archivedSessionsLoading && archivedSessions.length === 0);
+  const showMissionControlLoadingState =
+    sessionsLoading && sessions.length === 0;
+  const showHistoryLoadingState =
+    (archivedSessionsLoading && sortedArchivedSessions.length === 0) ||
+    (activeView === "history" &&
+      archivedCount > 0 &&
+      sortedArchivedSessions.length === 0 &&
+      lastLoadedArchivedCountRef.current !== archivedCount &&
+      !archivedSessionsError);
   const sidebarUser = session?.user ?? initialUser;
-
-  // Reset keyboard focus when displayed list changes
-  useEffect(() => {
-    setFocusedIndex(-1);
-  }, [displayedSessions.length, showArchived, activeFilter]);
 
   const handleSessionClick = useCallback(
     (targetSession: SessionWithUnread) => {
@@ -571,7 +299,9 @@ export function InboxSidebar({
         setArchivedSessions((current) => {
           const nextSessions = [
             { ...targetSession, status: "archived" as const },
-            ...current.filter((s) => s.id !== targetSession.id),
+            ...current.filter(
+              (sessionItem) => sessionItem.id !== targetSession.id,
+            ),
           ];
           const maxCachedSessions = Math.max(
             current.length,
@@ -624,272 +354,302 @@ export function InboxSidebar({
   const handleRenameArchivedSession = useCallback(
     (sessionId: string, title: string) => {
       setArchivedSessions((current) =>
-        current.map((s) => (s.id === sessionId ? { ...s, title } : s)),
+        current.map((targetSession) =>
+          targetSession.id === sessionId
+            ? { ...targetSession, title }
+            : targetSession,
+        ),
       );
     },
     [],
   );
 
-  // Keyboard navigation: up/down to move, enter to open, escape to reset
-  const handleListKeyDown = useCallback(
-    (e: ReactKeyboardEvent<HTMLDivElement>) => {
-      if (displayedSessions.length === 0) return;
-
-      switch (e.key) {
-        case "ArrowDown":
-        case "j": {
-          e.preventDefault();
-          setFocusedIndex((prev) =>
-            prev < displayedSessions.length - 1 ? prev + 1 : prev,
-          );
-          break;
-        }
-        case "ArrowUp":
-        case "k": {
-          e.preventDefault();
-          setFocusedIndex((prev) => (prev > 0 ? prev - 1 : 0));
-          break;
-        }
-        case "Enter": {
-          e.preventDefault();
-          const focused = displayedSessions[focusedIndex];
-          if (focused) {
-            onSessionClick(focused);
-          }
-          break;
-        }
-        case "Escape": {
-          e.preventDefault();
-          setFocusedIndex(-1);
-          break;
-        }
-      }
-    },
-    [displayedSessions, focusedIndex, onSessionClick],
+  const renderMissionControlCard = useCallback(
+    (targetSession: SessionWithUnread) => (
+      <MissionControlSessionCard
+        key={targetSession.id}
+        session={targetSession}
+        lane={getMissionControlLane(targetSession)}
+        isActive={targetSession.id === activeSessionId}
+        isPending={targetSession.id === pendingSessionId}
+        onSessionClick={handleSessionClick}
+        onSessionPrefetch={handleSessionPrefetch}
+        onOpenRenameDialog={handleOpenRenameDialog}
+        onArchiveSession={handleArchiveSession}
+      />
+    ),
+    [
+      activeSessionId,
+      handleArchiveSession,
+      handleOpenRenameDialog,
+      handleSessionClick,
+      handleSessionPrefetch,
+      pendingSessionId,
+    ],
   );
-
-  // Scroll focused row into view
-  useEffect(() => {
-    if (focusedIndex < 0 || !listRef.current) return;
-    const focusedSession = displayedSessions[focusedIndex];
-    if (!focusedSession) return;
-
-    const row = listRef.current.querySelector(
-      `[data-session-id="${focusedSession.id}"]`,
-    );
-    if (row) {
-      row.scrollIntoView({ block: "nearest" });
-    }
-  }, [focusedIndex, displayedSessions]);
 
   return (
     <>
-      {/* Header */}
-      <div className="flex items-center gap-3 border-b border-border px-4 py-2">
-        <span className="text-sm font-medium text-foreground">Inbox</span>
-
-        {/* Tabs inline */}
-        <div className="flex gap-px">
-          <button
-            type="button"
-            onClick={() => setShowArchived(false)}
-            className={cn(
-              "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-              !showArchived
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Active
-            {counts.total > 0 ? (
-              <span className="ml-1 tabular-nums text-muted-foreground">
-                {counts.total}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowArchived(true)}
-            className={cn(
-              "flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors",
-              showArchived
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Archive className="h-3 w-3" />
-            Archive
-            {archivedCount > 0 ? (
-              <span className="ml-0.5 tabular-nums text-muted-foreground">
-                {archivedCount}
-              </span>
-            ) : null}
-          </button>
-        </div>
-
-        {/* Filters */}
-        {!showArchived ? (
-          <div className="ml-auto flex gap-px">
-            {(
-              [
-                { key: "action", label: "Action", count: counts.needsAction },
-                { key: "waiting", label: "Waiting", count: counts.waiting },
-                { key: "all", label: "All", count: counts.total },
-              ] as const
-            ).map((filter) => (
-              <button
-                key={filter.key}
-                type="button"
-                onClick={() => setActiveFilter(filter.key)}
-                className={cn(
-                  "rounded-md px-2 py-1 text-[11px] font-medium transition-colors",
-                  activeFilter === filter.key
-                    ? "bg-accent text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {filter.label}
-                {filter.count > 0 ? (
-                  <span className="ml-1 tabular-nums text-muted-foreground">
-                    {filter.count}
-                  </span>
-                ) : null}
-              </button>
-            ))}
-          </div>
-        ) : (
-          <div className="ml-auto" />
-        )}
-
-        {/* User + New session */}
-        <div className="flex items-center gap-1">
-          {sidebarUser ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={() => router.push("/settings")}
-              aria-label="Open settings"
-            >
-              <Avatar className="h-5 w-5">
-                {sidebarUser.avatar ? (
-                  <AvatarImage
-                    src={sidebarUser.avatar}
-                    alt={sidebarUser.username}
-                  />
-                ) : null}
-                <AvatarFallback className="text-[8px]">
-                  {getAvatarFallback(sidebarUser.username)}
-                </AvatarFallback>
-              </Avatar>
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
-              onClick={() => router.push("/settings")}
-              aria-label="Open settings"
-            >
-              <Settings className="h-3.5 w-3.5" />
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={onOpenNewSession}
-            className="h-7 w-7"
-            aria-label="New session"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
-
-      {/* Session list */}
-      <div
-        ref={listRef}
-        className="min-h-0 flex-1 overflow-y-auto focus:outline-none"
-        tabIndex={0}
-        onKeyDown={handleListKeyDown}
-        role="listbox"
-        aria-label="Sessions"
-      >
-        {showLoadingSkeleton ? (
-          <div>
-            {Array.from({ length: 8 }).map((_, index) => (
-              <div key={index} className="space-y-1.5 px-4 py-2.5">
-                <div className="h-3.5 w-3/4 animate-pulse rounded bg-muted" />
-                <div className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+      <div className="border-b border-border/70 bg-background/95">
+        <div className="flex flex-col gap-4 px-4 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                {activeView === "history"
+                  ? "Session history"
+                  : "Sessions workspace"}
               </div>
-            ))}
+              <h1 className="mt-1 text-xl font-semibold tracking-tight text-foreground">
+                {activeView === "history" ? "History" : "Mission Control"}
+              </h1>
+              <p className="mt-1 max-w-xl text-sm leading-6 text-muted-foreground">
+                {activeView === "history"
+                  ? "Archived sessions and older threads live here once they leave Mission Control."
+                  : "Supervise active agents, jump into reviews, and keep recent completions in view."}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {sidebarUser ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => router.push("/settings")}
+                  aria-label="Open settings"
+                >
+                  <Avatar className="h-5 w-5">
+                    {sidebarUser.avatar ? (
+                      <AvatarImage
+                        src={sidebarUser.avatar}
+                        alt={sidebarUser.username}
+                      />
+                    ) : null}
+                    <AvatarFallback className="text-[8px]">
+                      {getAvatarFallback(sidebarUser.username)}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                  onClick={() => router.push("/settings")}
+                  aria-label="Open settings"
+                >
+                  <Settings className="h-3.5 w-3.5" />
+                </Button>
+              )}
+            </div>
           </div>
-        ) : displayedSessions.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
-            {showArchived
-              ? (archivedSessionsError ?? "No archived sessions")
-              : activeFilter === "action"
-                ? "Nothing needs attention"
-                : activeFilter === "waiting"
-                  ? "No sessions in progress"
-                  : "No sessions yet"}
-            {showArchived && archivedSessionsError ? (
-              <div className="mt-3">
+
+          {activeView === "mission-control" ? (
+            <>
+              <div className="grid grid-cols-3 gap-2">
+                <SummaryStat
+                  label="Needs You"
+                  value={missionControlCounts.needsYou}
+                  icon={ArrowUpRight}
+                  tone="needs-you"
+                />
+                <SummaryStat
+                  label="Running"
+                  value={missionControlCounts.running}
+                  icon={Loader2}
+                  tone="running"
+                />
+                <SummaryStat
+                  label="Completed"
+                  value={missionControlCounts.completed}
+                  icon={CheckCircle2}
+                  tone="completed"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" onClick={onOpenNewSession}>
+                  <Plus className="h-4 w-4" />
+                  <span>New session</span>
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  onClick={() => setActiveView("history")}
+                >
+                  <History className="h-4 w-4" />
+                  <span>History</span>
+                  <span className="tabular-nums text-muted-foreground">
+                    {archivedCount}
+                  </span>
+                </Button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setActiveView("mission-control")}
+              >
+                <ArrowLeft className="h-4 w-4" />
+                <span>Mission Control</span>
+              </Button>
+              <Button type="button" size="sm" onClick={onOpenNewSession}>
+                <Plus className="h-4 w-4" />
+                <span>New session</span>
+              </Button>
+              <span className="inline-flex items-center rounded-full border border-border/70 bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                <span className="tabular-nums">{archivedCount}</span>
+                <span className="ml-1">archived</span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        {activeView === "mission-control" ? (
+          showMissionControlLoadingState ? (
+            <MissionControlSkeleton />
+          ) : sessions.length === 0 ? (
+            <div className="px-4 py-6">
+              <Empty className="rounded-2xl border border-dashed border-border/70 bg-background/80">
+                <EmptyMedia variant="icon">
+                  <Plus className="h-5 w-5" />
+                </EmptyMedia>
+                <EmptyHeader>
+                  <EmptyTitle>No sessions yet</EmptyTitle>
+                  <EmptyDescription>
+                    Start a session to begin tracking active work in Mission
+                    Control.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent>
+                  <Button type="button" onClick={onOpenNewSession}>
+                    <Plus className="h-4 w-4" />
+                    <span>New session</span>
+                  </Button>
+                </EmptyContent>
+              </Empty>
+            </div>
+          ) : (
+            <div className="space-y-4 px-4 py-4">
+              <MissionControlSection
+                title="Needs You"
+                description="Pull requests ready for review and conversations waiting on a reply."
+                count={missionControlCounts.needsYou}
+                emptyMessage="Nothing is waiting on you right now."
+                tone="needs-you"
+              >
+                {missionControlSessions.needsYou.map(renderMissionControlCard)}
+              </MissionControlSection>
+
+              <MissionControlSection
+                title="Running"
+                description="Sessions where the agent is actively working right now."
+                count={missionControlCounts.running}
+                emptyMessage="No sessions are actively running."
+                tone="running"
+              >
+                {missionControlSessions.running.map(renderMissionControlCard)}
+              </MissionControlSection>
+
+              <MissionControlSection
+                title="Completed"
+                description="Quiet sessions and recent finishes that no longer need attention."
+                count={missionControlCounts.completed}
+                emptyMessage="Nothing has wrapped up yet."
+                tone="completed"
+              >
+                {missionControlSessions.completed.map(renderMissionControlCard)}
+              </MissionControlSection>
+            </div>
+          )
+        ) : showHistoryLoadingState ? (
+          <MissionControlSkeleton />
+        ) : archivedSessionsError && sortedArchivedSessions.length === 0 ? (
+          <div className="px-4 py-6">
+            <Empty className="rounded-2xl border border-dashed border-border/70 bg-background/80">
+              <EmptyMedia variant="icon">
+                <History className="h-5 w-5" />
+              </EmptyMedia>
+              <EmptyHeader>
+                <EmptyTitle>History is unavailable</EmptyTitle>
+                <EmptyDescription>{archivedSessionsError}</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button
+                  type="button"
+                  variant="outline"
                   onClick={handleRetryArchivedSessions}
                 >
                   Retry
                 </Button>
-              </div>
-            ) : null}
+              </EmptyContent>
+            </Empty>
+          </div>
+        ) : archivedCount === 0 ? (
+          <div className="px-4 py-6">
+            <Empty className="rounded-2xl border border-dashed border-border/70 bg-background/80">
+              <EmptyMedia variant="icon">
+                <History className="h-5 w-5" />
+              </EmptyMedia>
+              <EmptyHeader>
+                <EmptyTitle>No archived sessions</EmptyTitle>
+                <EmptyDescription>
+                  Sessions moved out of Mission Control will appear here.
+                </EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           </div>
         ) : (
-          <>
-            <div>
-              {displayedSessions.map((targetSession, index) => (
-                <SessionRow
+          <div className="space-y-4 px-4 py-4">
+            <MissionControlSection
+              title="History"
+              description="Older and archived sessions that are no longer part of the active workspace."
+              count={archivedCount}
+              emptyMessage="No history is available yet."
+              tone="history"
+            >
+              {sortedArchivedSessions.map((targetSession) => (
+                <MissionControlSessionCard
                   key={targetSession.id}
                   session={targetSession}
+                  lane={getMissionControlLane(targetSession)}
+                  variant="history"
                   isActive={targetSession.id === activeSessionId}
                   isPending={targetSession.id === pendingSessionId}
-                  isFocused={index === focusedIndex}
                   onSessionClick={handleSessionClick}
                   onSessionPrefetch={handleSessionPrefetch}
                   onOpenRenameDialog={handleOpenRenameDialog}
-                  onArchiveSession={handleArchiveSession}
                 />
               ))}
-            </div>
-            {showArchived &&
-            (hasMoreArchivedSessions || archivedSessionsError) ? (
-              <div className="px-3 pb-3">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={
-                    archivedSessionsError
-                      ? handleRetryArchivedSessions
-                      : handleLoadMoreArchivedSessions
-                  }
-                  disabled={archivedSessionsLoading}
-                >
-                  {archivedSessionsLoading
-                    ? "Loading..."
-                    : archivedSessionsError
-                      ? "Retry loading archived sessions"
-                      : "Load more archived sessions"}
-                </Button>
-              </div>
+            </MissionControlSection>
+
+            {hasMoreArchivedSessions || archivedSessionsError ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={
+                  archivedSessionsError
+                    ? handleRetryArchivedSessions
+                    : handleLoadMoreArchivedSessions
+                }
+                disabled={archivedSessionsLoading}
+              >
+                {archivedSessionsLoading
+                  ? "Loading..."
+                  : archivedSessionsError
+                    ? "Retry loading history"
+                    : "Load more history"}
+              </Button>
             ) : null}
-          </>
+          </div>
         )}
       </div>
 

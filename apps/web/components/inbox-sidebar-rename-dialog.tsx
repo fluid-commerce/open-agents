@@ -99,7 +99,7 @@ export function InboxSidebarRenameDialog({
         <DialogHeader>
           <DialogTitle>Edit session</DialogTitle>
           <DialogDescription>
-            Update the session name shown in your sidebar.
+            Update the session name shown in Mission Control.
           </DialogDescription>
         </DialogHeader>
         <form
