@@ -255,6 +255,7 @@ const TERMINAL_GATEWAY_SCRIPT_LINES = [
   'import { createReadStream, existsSync, readFileSync } from "node:fs";',
   'import { createServer } from "node:http";',
   'import path from "node:path";',
+  'import process from "node:process";',
   'import pty from "@lydell/node-pty";',
   'import { WebSocketServer } from "ws";',
   "",
