@@ -12,9 +12,9 @@ Background agents work differently. You assign a task, the agent spins up an iso
 
 This is a hard infrastructure problem. The agent needs isolated compute that persists across interruptions. The workflow needs to survive restarts and scale beyond any single request timeout. The agent needs access to models from multiple providers with automatic failover so your platform isn't tied to any single provider's uptime. And the agent logic needs to be portable across runtimes.
 
-Ramp [built this from scratch](https://builders.ramp.com/post/why-we-built-our-background-agent). So have several other companies we work with. Each invested months solving the same infrastructure problems.
+Many companies want to build their own. [Ramp built a background agent](https://builders.ramp.com/post/why-we-built-our-background-agent) tailored to their engineering workflows. Others want agents tuned to their codebase, their security requirements, their internal tools. When you build your own, you control the system prompt, the tool layer, the approval policies, and the data. Nothing leaves your infrastructure that you haven't explicitly allowed.
 
-Today we're open-sourcing a template that solves them using Vercel's infrastructure primitives. It ships as a coding agent because that's the most immediate use case, but the patterns it demonstrates (long-running compute, durable workflows, multi-model orchestration, isolated execution) apply to any background agent you need to build.
+Today we're open-sourcing a template that gives you a working starting point, built on Vercel's infrastructure primitives. It ships as a coding agent because that's the most immediate use case, but the patterns it demonstrates (long-running compute, durable workflows, multi-model orchestration, isolated execution) apply to any background agent you need to build.
 
 ## The infrastructure layer
 
@@ -35,6 +35,7 @@ The primitives provide infrastructure. The template composes them into a complet
 - **Agent runtime** with a structured tool layer (file read/write, shell execution, code search, web fetch, task management) and a system prompt that encodes engineering best practices as hard constraints
 - **Subagents** for task delegation: an explorer for read-only analysis, an executor for implementation work, and a designer for frontend interfaces, each running autonomously up to 100 tool steps
 - **Auto-commit and auto-PR** with AI-generated commit messages, branch safety validation, PR deduplication, and race condition handling
+- **Tool approvals** with human-in-the-loop control via the AI SDK, so destructive or sensitive actions require explicit approval before execution
 - **Context management** with cache control and aggressive compaction to keep long-running sessions within token budgets
 - **Skills system** for adding domain-specific capabilities (internal APIs, custom workflows, compliance checks) without modifying the core runtime
 - **Model switching** through AI Gateway so users can select different models per task
