@@ -314,8 +314,14 @@ export function SessionChatProvider({
   const sessionId = initialSession.id;
   const [sessionRecord, setSessionRecord] = useState<Session>(initialSession);
   const [chatInfo, setChatInfo] = useState<Chat>(initialChat);
+  const initialHasSavedSandbox =
+    hasSavedSandboxStateValue(initialSession.sandboxState) ||
+    Boolean(initialSession.snapshotUrl);
+  const initialCachedSandboxInfo = initialHasSavedSandbox
+    ? null
+    : (sandboxInfoCache.get(sessionId) ?? null);
   const [hasSnapshotState, setHasSnapshotState] = useState<boolean>(
-    !!initialSession.snapshotUrl,
+    initialHasSavedSandbox,
   );
   const { modelOptions: allModelOptions, loading: modelOptionsLoadingFromApi } =
     useModelOptions({
@@ -352,7 +358,7 @@ export function SessionChatProvider({
   });
 
   const [sandboxInfo, setSandboxInfoState] = useState<SandboxInfo | null>(
-    () => sandboxInfoCache.get(sessionId) ?? null,
+    () => initialCachedSandboxInfo,
   );
 
   const setSandboxInfo = useCallback(
@@ -372,9 +378,17 @@ export function SessionChatProvider({
     }));
   }, [sessionId]);
 
+  useEffect(() => {
+    if (!initialHasSavedSandbox) {
+      return;
+    }
+
+    sandboxInfoCache.delete(sessionId);
+  }, [initialHasSavedSandbox, sessionId]);
+
   const [reconnectionStatus, setReconnectionStatus] =
     useState<ReconnectionStatus>(() =>
-      sandboxInfoCache.has(sessionId) ? "connected" : "idle",
+      initialCachedSandboxInfo ? "connected" : "idle",
     );
   const statusSyncRef = useRef<{
     lastAt: number;
