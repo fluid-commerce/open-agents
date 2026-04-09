@@ -7,6 +7,7 @@ import {
   MODEL_VARIANT_ID_PREFIX,
   type ModelVariant,
 } from "@/lib/model-variants";
+import { getProviderFromModelId } from "@/components/provider-icons";
 
 export interface ModelOption {
   id: string;
@@ -14,6 +15,7 @@ export interface ModelOption {
   description?: string;
   isVariant: boolean;
   contextWindow?: number;
+  provider: string;
 }
 
 function toBaseModelOption(model: AvailableModel): ModelOption {
@@ -23,6 +25,7 @@ function toBaseModelOption(model: AvailableModel): ModelOption {
     description: model.description ?? undefined,
     isVariant: false,
     contextWindow: model.context_window,
+    provider: getProviderFromModelId(model.id),
   };
 }
 
@@ -40,6 +43,7 @@ function toVariantOption(
     description: `Variant of ${baseLabel}`,
     isVariant: true,
     contextWindow: baseModel?.context_window,
+    provider: getProviderFromModelId(variant.baseModelId),
   };
 }
 
@@ -86,6 +90,7 @@ export function withMissingModelOption(
       description: "Variant no longer exists",
       isVariant: true,
       contextWindow: undefined,
+      provider: "unknown",
     },
   ];
 }
