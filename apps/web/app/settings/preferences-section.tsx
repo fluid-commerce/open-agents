@@ -88,100 +88,34 @@ function SectionHeader({ children }: { children: React.ReactNode }) {
 export function PreferencesSectionSkeleton() {
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-lg font-semibold">Agent Preferences</h2>
-        <p className="text-sm text-muted-foreground">
-          Default settings for new sessions. You can override these when
-          starting a session or chat.
-        </p>
-      </div>
-
-      {/* Appearance */}
       <div className="space-y-4">
-        <SectionHeader>Appearance</SectionHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="appearance">Theme</Label>
-          <Select disabled>
-            <SelectTrigger id="appearance" className="w-full max-w-xs">
-              <Skeleton className="h-4 w-24" />
-            </SelectTrigger>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Choose between light and dark mode.
-          </p>
+        <SectionHeader>General</SectionHeader>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
         </div>
       </div>
-
       <div className="border-t border-border/50" />
-
-      {/* Models */}
       <div className="space-y-4">
         <SectionHeader>Models</SectionHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="model">Default Model</Label>
-          <Select disabled>
-            <SelectTrigger id="model" className="w-full max-w-xs">
-              <Skeleton className="h-4 w-32" />
-            </SelectTrigger>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            The AI model used for new chats.
-          </p>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
         </div>
-        <div className="grid gap-2">
-          <Label>Subagent Model</Label>
-          <Skeleton className="h-9 w-full max-w-xs" />
-        </div>
-        <div className="grid gap-2">
-          <Label>Custom Model Set</Label>
-          <Skeleton className="h-24 w-full" />
-        </div>
+        <Skeleton className="h-24 w-full" />
       </div>
-
       <div className="border-t border-border/50" />
-
-      {/* Environment */}
-      <div className="space-y-4">
-        <SectionHeader>Environment</SectionHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="sandbox">Default Sandbox</Label>
-          <Select disabled>
-            <SelectTrigger id="sandbox" className="w-full max-w-xs">
-              <Skeleton className="h-4 w-28" />
-            </SelectTrigger>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            The execution environment for new sessions.
-          </p>
+      <div className="grid gap-8 sm:grid-cols-2">
+        <div className="space-y-4">
+          <SectionHeader>Environment</SectionHeader>
+          <Skeleton className="h-16 w-full" />
+          <Skeleton className="h-16 w-full" />
         </div>
-        <div className="grid gap-2">
-          <Label htmlFor="diff-mode">Default Diff Mode</Label>
-          <Select disabled>
-            <SelectTrigger id="diff-mode" className="w-full max-w-xs">
-              <Skeleton className="h-4 w-24" />
-            </SelectTrigger>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            The diff layout used when opening the changes viewer.
-          </p>
+        <div className="space-y-4">
+          <SectionHeader>Automation</SectionHeader>
+          <Skeleton className="h-10 w-full" />
+          <Skeleton className="h-10 w-full" />
         </div>
-      </div>
-
-      <div className="border-t border-border/50" />
-
-      {/* Automation */}
-      <div className="space-y-4">
-        <SectionHeader>Automation</SectionHeader>
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-10 w-full" />
-      </div>
-
-      <div className="border-t border-border/50" />
-
-      {/* Notifications */}
-      <div className="space-y-4">
-        <SectionHeader>Notifications</SectionHeader>
-        <Skeleton className="h-10 w-full" />
       </div>
     </div>
   );
@@ -420,88 +354,115 @@ export function PreferencesSection() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h2 className="text-lg font-semibold">Agent Preferences</h2>
-        <p className="text-sm text-muted-foreground">
-          Default settings for new sessions. You can override these when
-          starting a session or chat.
-        </p>
-      </div>
-
-      {/* Appearance */}
+      {/* ── General: Theme + Notifications side by side ── */}
       <div className="space-y-4">
-        <SectionHeader>Appearance</SectionHeader>
-        <div className="grid gap-2">
-          <Label htmlFor="appearance">Theme</Label>
-          <Select value={theme} onValueChange={handleThemeChange}>
-            <SelectTrigger id="appearance" className="w-full max-w-xs">
-              <SelectValue placeholder="Select an appearance" />
-            </SelectTrigger>
-            <SelectContent>
-              {THEME_OPTIONS.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            Choose between light and dark mode. This preference is saved in your
-            current browser.
-          </p>
+        <SectionHeader>General</SectionHeader>
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="appearance">Theme</Label>
+            <Select value={theme} onValueChange={handleThemeChange}>
+              <SelectTrigger id="appearance" className="w-full">
+                <SelectValue placeholder="Select an appearance" />
+              </SelectTrigger>
+              <SelectContent>
+                {THEME_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Saved in your current browser.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-4">
+              <div className="space-y-0.5">
+                <Label htmlFor="alerts-enabled">Alerts</Label>
+                <p className="text-xs text-muted-foreground">
+                  Notify when a background agent finishes.
+                </p>
+              </div>
+              <Switch
+                id="alerts-enabled"
+                checked={preferences?.alertsEnabled ?? true}
+                onCheckedChange={handleAlertsEnabledChange}
+                disabled={isSaving}
+              />
+            </div>
+            {(preferences?.alertsEnabled ?? true) && (
+              <div className="flex items-center justify-between gap-4 pl-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="alert-sound-enabled">Alert sound</Label>
+                  <p className="text-xs text-muted-foreground">
+                    Play a sound with alerts.
+                  </p>
+                </div>
+                <Switch
+                  id="alert-sound-enabled"
+                  checked={preferences?.alertSoundEnabled ?? true}
+                  onCheckedChange={handleAlertSoundEnabledChange}
+                  disabled={isSaving}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
       <div className="border-t border-border/50" />
 
-      {/* Models */}
+      {/* ── Models: Default + Subagent side by side, Custom Model Set below ── */}
       <div className="space-y-4">
         <SectionHeader>Models</SectionHeader>
 
-        <div className="grid gap-2">
-          <Label htmlFor="model">Default Model</Label>
-          <ModelCombobox
-            value={selectedDefaultModelId}
-            items={defaultModelOptions.map((option) => ({
-              id: option.id,
-              label: option.label,
-              description: option.description,
-              isVariant: option.isVariant,
-            }))}
-            placeholder="Select a model"
-            searchPlaceholder="Search models..."
-            emptyText={modelOptionsLoading ? "Loading..." : "No models found."}
-            disabled={isSaving || modelOptionsLoading}
-            onChange={handleModelChange}
-          />
-          <p className="text-xs text-muted-foreground">
-            The AI model used for new chats.
-          </p>
-        </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="subagent-model">Subagent Model</Label>
-          <ModelCombobox
-            value={selectedSubagentModelId}
-            items={[
-              { id: "auto", label: "Same as main model" },
-              ...subagentModelOptions.map((option) => ({
+        <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid gap-2">
+            <Label htmlFor="model">Default Model</Label>
+            <ModelCombobox
+              value={selectedDefaultModelId}
+              items={defaultModelOptions.map((option) => ({
                 id: option.id,
                 label: option.label,
                 description: option.description,
                 isVariant: option.isVariant,
-              })),
-            ]}
-            placeholder="Select a model"
-            searchPlaceholder="Search models..."
-            emptyText={modelOptionsLoading ? "Loading..." : "No models found."}
-            disabled={isSaving || modelOptionsLoading}
-            onChange={handleSubagentModelChange}
-          />
-          <p className="text-xs text-muted-foreground">
-            The AI model used for explorer and executor subagents. Defaults to
-            the main model if not set.
-          </p>
+              }))}
+              placeholder="Select a model"
+              searchPlaceholder="Search models..."
+              emptyText={modelOptionsLoading ? "Loading..." : "No models found."}
+              disabled={isSaving || modelOptionsLoading}
+              onChange={handleModelChange}
+            />
+            <p className="text-xs text-muted-foreground">
+              The AI model used for new chats.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="subagent-model">Subagent Model</Label>
+            <ModelCombobox
+              value={selectedSubagentModelId}
+              items={[
+                { id: "auto", label: "Same as main model" },
+                ...subagentModelOptions.map((option) => ({
+                  id: option.id,
+                  label: option.label,
+                  description: option.description,
+                  isVariant: option.isVariant,
+                })),
+              ]}
+              placeholder="Select a model"
+              searchPlaceholder="Search models..."
+              emptyText={modelOptionsLoading ? "Loading..." : "No models found."}
+              disabled={isSaving || modelOptionsLoading}
+              onChange={handleSubagentModelChange}
+            />
+            <p className="text-xs text-muted-foreground">
+              For explorer and executor subagents.
+            </p>
+          </div>
         </div>
 
         <EnabledModelsSection
@@ -517,70 +478,57 @@ export function PreferencesSection() {
 
       <div className="border-t border-border/50" />
 
-      {/* Environment */}
-      <div className="space-y-4">
-        <SectionHeader>Environment</SectionHeader>
-
-        <div className="grid gap-2">
-          <Label htmlFor="sandbox">Default Sandbox</Label>
-          <Select
-            value={preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE}
-            onValueChange={(value) => handleSandboxChange(value as SandboxType)}
-            disabled={isSaving}
-          >
-            <SelectTrigger id="sandbox" className="w-full max-w-xs">
-              <SelectValue placeholder="Select a sandbox type" />
-            </SelectTrigger>
-            <SelectContent>
-              {SANDBOX_OPTIONS.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            The execution environment for new sessions.
-          </p>
+      {/* ── Environment + Automation side by side ── */}
+      <div className="grid gap-8 sm:grid-cols-2">
+        <div className="space-y-4">
+          <SectionHeader>Environment</SectionHeader>
+          <div className="grid gap-2">
+            <Label htmlFor="sandbox">Default Sandbox</Label>
+            <Select
+              value={preferences?.defaultSandboxType ?? DEFAULT_SANDBOX_TYPE}
+              onValueChange={(value) => handleSandboxChange(value as SandboxType)}
+              disabled={isSaving}
+            >
+              <SelectTrigger id="sandbox" className="w-full">
+                <SelectValue placeholder="Select a sandbox type" />
+              </SelectTrigger>
+              <SelectContent>
+                {SANDBOX_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="diff-mode">Default Diff Mode</Label>
+            <Select
+              value={preferences?.defaultDiffMode ?? "unified"}
+              onValueChange={(value) => handleDiffModeChange(value as DiffMode)}
+              disabled={isSaving}
+            >
+              <SelectTrigger id="diff-mode" className="w-full">
+                <SelectValue placeholder="Select a diff mode" />
+              </SelectTrigger>
+              <SelectContent>
+                {DIFF_MODE_OPTIONS.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="diff-mode">Default Diff Mode</Label>
-          <Select
-            value={preferences?.defaultDiffMode ?? "unified"}
-            onValueChange={(value) => handleDiffModeChange(value as DiffMode)}
-            disabled={isSaving}
-          >
-            <SelectTrigger id="diff-mode" className="w-full max-w-xs">
-              <SelectValue placeholder="Select a diff mode" />
-            </SelectTrigger>
-            <SelectContent>
-              {DIFF_MODE_OPTIONS.map((option) => (
-                <SelectItem key={option.id} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <p className="text-xs text-muted-foreground">
-            The diff layout used when opening the changes viewer.
-          </p>
-        </div>
-      </div>
-
-      <div className="border-t border-border/50" />
-
-      {/* Automation */}
-      <div className="space-y-4">
-        <SectionHeader>Automation</SectionHeader>
-
-        <div className="grid gap-2">
+        <div className="space-y-4">
+          <SectionHeader>Automation</SectionHeader>
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="auto-commit-push">Auto commit and push</Label>
+            <div className="space-y-0.5">
+              <Label htmlFor="auto-commit-push">Auto commit &amp; push</Label>
               <p className="text-xs text-muted-foreground">
-                Automatically commit and push git changes when an agent turn
-                finishes.
+                Commit and push when an agent turn finishes.
               </p>
             </div>
             <Switch
@@ -590,15 +538,11 @@ export function PreferencesSection() {
               disabled={isSaving}
             />
           </div>
-        </div>
-
-        <div className="grid gap-2">
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="auto-create-pr">Auto create pull request</Label>
+            <div className="space-y-0.5">
+              <Label htmlFor="auto-create-pr">Auto create PR</Label>
               <p className="text-xs text-muted-foreground">
-                Automatically open a pull request after auto commit and push for
-                repo-backed sessions.
+                Open a pull request after auto commit.
               </p>
             </div>
             <Switch
@@ -613,47 +557,7 @@ export function PreferencesSection() {
 
       <div className="border-t border-border/50" />
 
-      {/* Notifications */}
-      <div className="space-y-4">
-        <SectionHeader>Notifications</SectionHeader>
-
-        <div className="grid gap-3">
-          <div className="flex items-center justify-between gap-4">
-            <div className="space-y-1">
-              <Label htmlFor="alerts-enabled">Alerts</Label>
-              <p className="text-xs text-muted-foreground">
-                Show a notification when a background agent finishes.
-              </p>
-            </div>
-            <Switch
-              id="alerts-enabled"
-              checked={preferences?.alertsEnabled ?? true}
-              onCheckedChange={handleAlertsEnabledChange}
-              disabled={isSaving}
-            />
-          </div>
-          {(preferences?.alertsEnabled ?? true) && (
-            <div className="flex items-center justify-between gap-4 pl-4">
-              <div className="space-y-1">
-                <Label htmlFor="alert-sound-enabled">Alert sound</Label>
-                <p className="text-xs text-muted-foreground">
-                  Play a sound when an alert is shown.
-                </p>
-              </div>
-              <Switch
-                id="alert-sound-enabled"
-                checked={preferences?.alertSoundEnabled ?? true}
-                onCheckedChange={handleAlertSoundEnabledChange}
-                disabled={isSaving}
-              />
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="border-t border-border/50" />
-
-      {/* Skills */}
+      {/* ── Skills ── */}
       <div className="space-y-4">
         <SectionHeader>Skills</SectionHeader>
 

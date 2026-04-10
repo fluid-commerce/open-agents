@@ -17,6 +17,15 @@ import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import useSWR, { useSWRConfig } from "swr";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "@/hooks/use-session";
 import { fetcher } from "@/lib/swr";
@@ -355,6 +364,7 @@ function GitHubConnection({
   onRefresh: () => void;
   onUnlink: () => void;
 }) {
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
   const installedCount =
     orgs?.filter((o) => o.installStatus === "installed").length ?? 0;
 
@@ -398,9 +408,9 @@ function GitHubConnection({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={onUnlink}
+                onClick={() => setDisconnectOpen(true)}
                 disabled={unlinking}
-                className="h-7 text-xs text-muted-foreground"
+                className="h-7 text-xs text-destructive hover:text-destructive"
               >
                 {unlinking ? (
                   <>
@@ -425,6 +435,33 @@ function GitHubConnection({
           )}
         </div>
       </div>
+
+      {/* Disconnect confirmation dialog */}
+      <Dialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
+        <DialogContent showCloseButton={false}>
+          <DialogHeader>
+            <DialogTitle>Disconnect GitHub?</DialogTitle>
+            <DialogDescription>
+              This will unlink your GitHub account and remove all app
+              installations. You can reconnect at any time.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setDisconnectOpen(false);
+                onUnlink();
+              }}
+            >
+              Disconnect
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Body */}
       <div className="p-4">
