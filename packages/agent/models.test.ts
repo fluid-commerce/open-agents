@@ -70,7 +70,7 @@ describe("getProviderOptionsForModel", () => {
     });
   });
 
-  test("preserves store false and encrypted reasoning content for the built-in GPT-5.4 variant", () => {
+  test("downgrades unsupported xhigh reasoning effort for GPT-5.4 variants", () => {
     const result = getProviderOptionsForModel("openai/gpt-5.4", {
       openai: {
         reasoningEffort: "xhigh",
@@ -80,11 +80,28 @@ describe("getProviderOptionsForModel", () => {
 
     expect(result).toEqual({
       openai: {
-        reasoningEffort: "xhigh",
+        reasoningEffort: "high",
         reasoningSummary: "auto",
         include: ["reasoning.encrypted_content"],
         store: false,
         textVerbosity: "low",
+      },
+    });
+  });
+
+  test("preserves xhigh reasoning effort for GPT-5.1 Codex Max", () => {
+    const result = getProviderOptionsForModel("openai/gpt-5.1-codex-max", {
+      openai: {
+        reasoningEffort: "xhigh",
+      },
+    });
+
+    expect(result).toEqual({
+      openai: {
+        reasoningEffort: "xhigh",
+        reasoningSummary: "detailed",
+        include: ["reasoning.encrypted_content"],
+        store: false,
       },
     });
   });

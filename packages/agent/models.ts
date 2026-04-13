@@ -106,6 +106,27 @@ function shouldApplyOpenAITextVerbosityDefaults(modelId: string): boolean {
   return modelId.startsWith("openai/gpt-5.4");
 }
 
+function supportsOpenAIXHighReasoningEffort(modelId: string): boolean {
+  return modelId.startsWith("openai/gpt-5.1-codex-max");
+}
+
+function normalizeOpenAIProviderOptions(
+  modelId: string,
+  providerOptions: Record<string, JSONValue>,
+): Record<string, JSONValue> {
+  if (
+    providerOptions.reasoningEffort !== "xhigh" ||
+    supportsOpenAIXHighReasoningEffort(modelId)
+  ) {
+    return providerOptions;
+  }
+
+  return {
+    ...providerOptions,
+    reasoningEffort: "high",
+  };
+}
+
 export function getProviderOptionsForModel(
   modelId: string,
   providerOptionsOverrides?: ProviderOptionsByProvider,
@@ -155,11 +176,14 @@ export function getProviderOptionsForModel(
 
   // Enforce OpenAI non-persistence even when custom provider overrides are present.
   if (modelId.startsWith("openai/")) {
-    providerOptions.openai = mergeRecords(
-      providerOptions.openai ?? {},
-      toProviderOptionsRecord({
-        store: false,
-      } satisfies OpenAIResponsesProviderOptions),
+    providerOptions.openai = normalizeOpenAIProviderOptions(
+      modelId,
+      mergeRecords(
+        providerOptions.openai ?? {},
+        toProviderOptionsRecord({
+          store: false,
+        } satisfies OpenAIResponsesProviderOptions),
+      ),
     );
   }
 
