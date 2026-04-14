@@ -96,5 +96,4 @@ export {
   buildGitHubAuthRemoteUrl,
 } from "./repo-identifiers";
 
-export { downloadAndExtractTarball } from "./tarball";
-export type { TarballResult } from "./tarball";
+
