@@ -4,7 +4,11 @@ import { nanoid } from "nanoid";
 import { decrypt, encrypt } from "@/lib/crypto";
 import { db } from "@/lib/db/client";
 import { vercelConnections } from "@/lib/db/schema";
-import { fetchVercelApi, isAuthenticationError } from "./api-client";
+import {
+  VercelApiError,
+  fetchVercelApi,
+  isAuthenticationError,
+} from "./api-client";
 import { getUserVercelToken } from "./token";
 
 /** How long before we proactively refresh the gateway key (4 hours). */
@@ -90,6 +94,8 @@ export async function obtainGatewayApiKey(params: {
   } catch (error) {
     console.error("[gateway-key] Failed to exchange token for gateway key:", {
       error: error instanceof Error ? error.message : String(error),
+      responseBody:
+        error instanceof VercelApiError ? error.responseBody : undefined,
       teamId: params.teamId,
       isAuthError: isAuthenticationError(error),
     });
