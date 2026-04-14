@@ -355,21 +355,7 @@ function TeamSelector({ onComplete }: { onComplete: () => void }) {
                 className="size-3.5 shrink-0 text-emerald-500"
                 strokeWidth={2.5}
               />
-            ) : (
-              <div
-                className={`size-3.5 shrink-0 rounded-full border transition-colors duration-150 ${
-                  isSelected
-                    ? "border-white bg-white"
-                    : "border-zinc-600 bg-transparent"
-                }`}
-              >
-                {isSelected && (
-                  <div className="flex size-full items-center justify-center">
-                    <div className="size-1.5 rounded-full bg-black" />
-                  </div>
-                )}
-              </div>
-            )}
+            ) : null}
           </button>
         );
       })}
