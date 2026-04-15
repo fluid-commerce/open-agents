@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-const INSTALLATION_REPOS_MAX_PAGES = 20;
+const INSTALLATION_REPOS_PER_PAGE = 100;
 
 const installationRepoSchema = z.object({
   name: z.string(),
@@ -19,6 +19,10 @@ const installationReposResponseSchema = z.object({
   repositories: z.array(installationRepoSchema),
 });
 
+const repositorySearchResponseSchema = z.object({
+  items: z.array(installationRepoSchema),
+});
+
 export interface InstallationRepository {
   name: string;
   full_name: string;
@@ -35,11 +39,19 @@ interface ListUserInstallationRepositoriesOptions {
   owner?: string;
   query?: string;
   limit?: number;
+  repositorySelection?: "all" | "selected";
+}
+
+function buildGitHubHeaders(userToken: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${userToken}`,
+    Accept: "application/vnd.github.v3+json",
+  };
 }
 
 function normalizeLimit(limit?: number): number {
   if (typeof limit !== "number" || !Number.isFinite(limit)) {
-    return 50;
+    return 8;
   }
 
   return Math.max(1, Math.min(limit, 100));
@@ -65,6 +77,85 @@ function compareRepositoriesByRecentActivity(
   return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
 }
 
+function createRepoMatcher(query?: string) {
+  const queryFilter = query?.trim().toLowerCase();
+
+  if (!queryFilter) {
+    return () => true;
+  }
+
+  return (repo: z.infer<typeof installationRepoSchema>) => {
+    const repoName = repo.name.toLowerCase();
+    const fullName = repo.full_name.toLowerCase();
+
+    return repoName.includes(queryFilter) || fullName.includes(queryFilter);
+  };
+}
+
+async function fetchJson(endpoint: URL, userToken: string): Promise<unknown> {
+  const response = await fetch(endpoint, {
+    headers: buildGitHubHeaders(userToken),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`GitHub request failed: ${response.status} ${body}`);
+  }
+
+  return response.json();
+}
+
+async function listInstallationRepositoriesPage(
+  installationId: number,
+  userToken: string,
+  page: number,
+  perPage = INSTALLATION_REPOS_PER_PAGE,
+): Promise<z.infer<typeof installationRepoSchema>[]> {
+  const endpoint = new URL(
+    `https://api.github.com/user/installations/${installationId}/repositories`,
+  );
+  endpoint.searchParams.set("per_page", `${perPage}`);
+  endpoint.searchParams.set("page", `${page}`);
+
+  const json = await fetchJson(endpoint, userToken);
+  const parsed = installationReposResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error("Invalid GitHub user installation repositories response");
+  }
+
+  return parsed.data.repositories;
+}
+
+async function searchRepositories(
+  query: string,
+  userToken: string,
+  owner?: string,
+  limit?: number,
+): Promise<z.infer<typeof installationRepoSchema>[]> {
+  const endpoint = new URL("https://api.github.com/search/repositories");
+  const searchTerms = [query.trim()];
+
+  if (owner?.trim()) {
+    searchTerms.push(`user:${owner.trim()}`);
+  }
+
+  endpoint.searchParams.set("q", searchTerms.join(" "));
+  endpoint.searchParams.set("sort", "updated");
+  endpoint.searchParams.set("order", "desc");
+  endpoint.searchParams.set(
+    "per_page",
+    `${Math.min(limit ?? INSTALLATION_REPOS_PER_PAGE, INSTALLATION_REPOS_PER_PAGE)}`,
+  );
+
+  const json = await fetchJson(endpoint, userToken);
+  const parsed = repositorySearchResponseSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new Error("Invalid GitHub repository search response");
+  }
+
+  return parsed.data.items;
+}
+
 /**
  * List repositories accessible to the user through a specific GitHub App
  * installation. Uses the user's OAuth token so GitHub computes the
@@ -76,78 +167,80 @@ export async function listUserInstallationRepositories({
   owner,
   query,
   limit,
+  repositorySelection,
 }: ListUserInstallationRepositoriesOptions): Promise<InstallationRepository[]> {
   const ownerFilter = owner?.trim().toLowerCase();
-  const queryFilter = query?.trim().toLowerCase();
   const normalizedLimit = normalizeLimit(limit);
+  const matchesQuery = createRepoMatcher(query);
+  const searchQuery = query?.trim();
+  const shouldUseInstallationListing =
+    repositorySelection === "selected" || !searchQuery;
 
-  const perPage = 25;
-  const maxPages = INSTALLATION_REPOS_MAX_PAGES;
   const matchedRepos: z.infer<typeof installationRepoSchema>[] = [];
+  const seenRepos = new Set<string>();
 
-  for (let page = 1; page <= maxPages; page++) {
-    const endpoint = new URL(
-      `https://api.github.com/user/installations/${installationId}/repositories`,
+  if (shouldUseInstallationListing) {
+    const repositories = await listInstallationRepositoriesPage(
+      installationId,
+      userToken,
+      1,
+      INSTALLATION_REPOS_PER_PAGE,
     );
-    endpoint.searchParams.set("per_page", `${perPage}`);
-    endpoint.searchParams.set("page", `${page}`);
 
-    const response = await fetch(endpoint, {
-      headers: {
-        Authorization: `Bearer ${userToken}`,
-        Accept: "application/vnd.github.v3+json",
-      },
-    });
-
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(
-        `Failed to fetch user installation repositories: ${response.status} ${body}`,
-      );
-    }
-
-    const json = await response.json();
-    const parsed = installationReposResponseSchema.safeParse(json);
-    if (!parsed.success) {
-      throw new Error("Invalid GitHub user installation repositories response");
-    }
-
-    if (parsed.data.repositories.length === 0) {
-      break;
-    }
-
-    const pageMatches = parsed.data.repositories.filter((repo) => {
+    for (const repo of repositories) {
       const matchesOwner = ownerFilter
         ? repo.owner.login.toLowerCase() === ownerFilter
         : true;
 
-      const matchesQuery = queryFilter
-        ? repo.name.toLowerCase().includes(queryFilter)
-        : true;
+      if (
+        !matchesOwner ||
+        !matchesQuery(repo) ||
+        seenRepos.has(repo.full_name)
+      ) {
+        continue;
+      }
 
-      return matchesOwner && matchesQuery;
-    });
-
-    matchedRepos.push(...pageMatches);
-
-    if (matchedRepos.length >= normalizedLimit) {
-      break;
-    }
-
-    if (parsed.data.repositories.length < perPage) {
-      break;
+      seenRepos.add(repo.full_name);
+      matchedRepos.push(repo);
     }
   }
 
-  matchedRepos.sort(compareRepositoriesByRecentActivity);
+  if (!shouldUseInstallationListing && searchQuery) {
+    const searchResults = await searchRepositories(
+      searchQuery,
+      userToken,
+      owner,
+      normalizedLimit,
+    );
 
-  return matchedRepos.slice(0, normalizedLimit).map((repo) => ({
-    name: repo.name,
-    full_name: repo.full_name,
-    description: repo.description,
-    private: repo.private,
-    clone_url: repo.clone_url,
-    updated_at: repo.updated_at,
-    language: repo.language,
-  }));
+    for (const repo of searchResults) {
+      const matchesOwner = ownerFilter
+        ? repo.owner.login.toLowerCase() === ownerFilter
+        : true;
+
+      if (
+        !matchesOwner ||
+        !matchesQuery(repo) ||
+        seenRepos.has(repo.full_name)
+      ) {
+        continue;
+      }
+
+      seenRepos.add(repo.full_name);
+      matchedRepos.push(repo);
+    }
+  }
+
+  return matchedRepos
+    .sort(compareRepositoriesByRecentActivity)
+    .slice(0, normalizedLimit)
+    .map((repo) => ({
+      name: repo.name,
+      full_name: repo.full_name,
+      description: repo.description,
+      private: repo.private,
+      clone_url: repo.clone_url,
+      updated_at: repo.updated_at,
+      language: repo.language,
+    }));
 }

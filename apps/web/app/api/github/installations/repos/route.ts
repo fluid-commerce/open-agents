@@ -69,6 +69,7 @@ export async function GET(request: NextRequest) {
       owner: installation.accountLogin,
       query,
       limit,
+      repositorySelection: installation.repositorySelection,
     });
 
     return NextResponse.json(repos);
