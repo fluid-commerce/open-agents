@@ -190,23 +190,31 @@ export async function POST(req: Request) {
       }
     : undefined;
 
-  const sandbox = await connectSandbox({
-    state: {
-      type: "vercel",
-      ...(sandboxName ? { sandboxName } : {}),
-      source,
-    },
-    options: {
-      githubToken: githubToken ?? undefined,
-      gitUser,
-      timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
-      ports: DEFAULT_SANDBOX_PORTS,
-      baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
-      persistent: !!sandboxName,
-      resume: !!sandboxName,
-      createIfMissing: !!sandboxName,
-    },
-  });
+  let sandbox: Awaited<ReturnType<typeof connectSandbox>>;
+  try {
+    sandbox = await connectSandbox({
+      state: {
+        type: "vercel",
+        ...(sandboxName ? { sandboxName } : {}),
+        source,
+      },
+      options: {
+        githubToken: githubToken ?? undefined,
+        gitUser,
+        timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
+        ports: DEFAULT_SANDBOX_PORTS,
+        baseSnapshotId: DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
+        persistent: !!sandboxName,
+        resume: !!sandboxName,
+        createIfMissing: !!sandboxName,
+      },
+    });
+  } catch (err) {
+    const message =
+      err instanceof Error ? err.message : "Unknown sandbox error";
+    console.error("Sandbox creation failed:", err);
+    return Response.json({ error: message }, { status: 500 });
+  }
 
   if (sessionId && sandbox.getState) {
     const nextState = sandbox.getState() as SandboxState;
