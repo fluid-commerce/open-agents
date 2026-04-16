@@ -46,6 +46,9 @@ export async function GET() {
       total_used: string;
     };
 
+    // TODO: remove after debugging credits display
+    console.log("[credits] Raw response:", data);
+
     return Response.json(data);
   } catch (error) {
     console.error("Failed to fetch gateway credits:", error);
