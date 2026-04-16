@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import Image from "next/image";
 import useSWR from "swr";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "@/hooks/use-session";
@@ -123,15 +123,14 @@ export function VercelSection() {
           {currentTeam && !showTeamPicker ? (
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <Avatar className="size-10">
-                  <AvatarImage
-                    src={`https://vercel.com/api/www/avatar?teamId=${currentTeam.id}&s=80`}
-                    alt={currentTeam.name}
-                  />
-                  <AvatarFallback>
-                    {currentTeam.name.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
+                <Image
+                  src={`https://vercel.com/api/www/avatar?teamId=${currentTeam.id}&s=80`}
+                  alt=""
+                  width={40}
+                  height={40}
+
+                  className="size-10 rounded-full bg-muted"
+                />
                 <p className="text-sm font-medium">{currentTeam.name}</p>
               </div>
               <Button
@@ -159,15 +158,14 @@ export function VercelSection() {
                     onClick={() => handleTeamChange(team)}
                     className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <Avatar className="size-8">
-                      <AvatarImage
-                        src={`https://vercel.com/api/www/avatar?teamId=${team.id}&s=64`}
-                        alt={team.name}
-                      />
-                      <AvatarFallback>
-                        {team.name.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <Image
+                      src={`https://vercel.com/api/www/avatar?teamId=${team.id}&s=64`}
+                      alt=""
+                      width={32}
+                      height={32}
+    
+                      className="size-8 rounded-full bg-muted"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm">{team.name}</p>
                     </div>

@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 import useSWR from "swr";
 import { Check, Github, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -298,9 +299,12 @@ function TeamSelector({ onComplete }: { onComplete: () => void }) {
     return (
       <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2.5">
         <div className="flex items-center gap-3">
-          <img
+          <Image
             src={`https://vercel.com/api/www/avatar?teamId=${selectedTeam.id}&s=64`}
             alt=""
+            width={32}
+            height={32}
+
             className="size-8 rounded-full bg-zinc-800"
           />
           <p className="text-sm font-medium text-zinc-200">
@@ -336,9 +340,12 @@ function TeamSelector({ onComplete }: { onComplete: () => void }) {
             onClick={() => handleSelectTeam(team)}
             className="flex w-full items-center gap-3 rounded px-1 py-2 text-left transition-colors duration-150 hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <img
+            <Image
               src={`https://vercel.com/api/www/avatar?teamId=${team.id}&s=48`}
               alt=""
+              width={24}
+              height={24}
+  
               className="size-6 rounded-full bg-zinc-800"
             />
             <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">
@@ -380,9 +387,12 @@ function GitHubConnector({ onComplete }: { onComplete: () => void }) {
         <div className="flex items-center justify-between rounded-lg border border-white/10 px-3 py-2.5">
           <div className="flex items-center gap-3">
             {session?.user?.avatar ? (
-              <img
+              <Image
                 src={session.user.avatar}
                 alt=""
+                width={32}
+                height={32}
+    
                 className="size-8 rounded-full bg-zinc-800"
               />
             ) : (
