@@ -1,7 +1,8 @@
-import { and, asc, eq, notInArray, or } from "drizzle-orm";
+import { and, asc, eq, inArray, notInArray, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "./client";
 import {
+  githubInstallationRepositories,
   type GitHubInstallation,
   githubInstallations,
   type NewGitHubInstallation,
@@ -16,11 +17,48 @@ export interface UpsertInstallationInput {
   installationUrl?: string | null;
 }
 
+function shouldMarkRepoCacheStale(
+  existing: {
+    installationId: number;
+    accountLogin: string;
+    repositorySelection: "all" | "selected";
+  },
+  next: UpsertInstallationInput,
+): boolean {
+  return (
+    existing.installationId !== next.installationId ||
+    existing.accountLogin !== next.accountLogin ||
+    existing.repositorySelection !== next.repositorySelection
+  );
+}
+
+export function isInstallationRepoCacheStale(installation: {
+  repoCacheSyncedAt: Date | null;
+  repoCacheStaleAt: Date | null;
+}): boolean {
+  if (!installation.repoCacheSyncedAt) {
+    return true;
+  }
+
+  if (!installation.repoCacheStaleAt) {
+    return false;
+  }
+
+  return installation.repoCacheStaleAt > installation.repoCacheSyncedAt;
+}
+
 export async function upsertInstallation(
   data: UpsertInstallationInput,
 ): Promise<GitHubInstallation> {
   const existing = await db
-    .select({ id: githubInstallations.id })
+    .select({
+      id: githubInstallations.id,
+      installationId: githubInstallations.installationId,
+      accountLogin: githubInstallations.accountLogin,
+      repositorySelection: githubInstallations.repositorySelection,
+      repoCacheSyncedAt: githubInstallations.repoCacheSyncedAt,
+      repoCacheStaleAt: githubInstallations.repoCacheStaleAt,
+    })
     .from(githubInstallations)
     .where(
       and(
@@ -36,6 +74,7 @@ export async function upsertInstallation(
   const now = new Date();
 
   if (existing[0]) {
+    const markRepoCacheStale = shouldMarkRepoCacheStale(existing[0], data);
     const [updated] = await db
       .update(githubInstallations)
       .set({
@@ -44,6 +83,10 @@ export async function upsertInstallation(
         accountType: data.accountType,
         repositorySelection: data.repositorySelection,
         installationUrl: data.installationUrl ?? null,
+        repoCacheSyncedAt: existing[0].repoCacheSyncedAt,
+        repoCacheStaleAt: markRepoCacheStale
+          ? now
+          : existing[0].repoCacheStaleAt,
         updatedAt: now,
       })
       .where(eq(githubInstallations.id, existing[0].id))
@@ -64,6 +107,8 @@ export async function upsertInstallation(
     accountType: data.accountType,
     repositorySelection: data.repositorySelection,
     installationUrl: data.installationUrl ?? null,
+    repoCacheSyncedAt: null,
+    repoCacheStaleAt: now,
     createdAt: now,
     updatedAt: now,
   };
@@ -143,6 +188,12 @@ export async function deleteInstallationByInstallationId(
     .where(eq(githubInstallations.installationId, installationId))
     .returning({ id: githubInstallations.id });
 
+  if (deleted.length > 0) {
+    await db
+      .delete(githubInstallationRepositories)
+      .where(eq(githubInstallationRepositories.installationId, installationId));
+  }
+
   return deleted.length;
 }
 
@@ -153,6 +204,12 @@ export async function deleteInstallationsByUserId(
     .delete(githubInstallations)
     .where(eq(githubInstallations.userId, userId))
     .returning({ id: githubInstallations.id });
+
+  if (deleted.length > 0) {
+    await db
+      .delete(githubInstallationRepositories)
+      .where(eq(githubInstallationRepositories.userId, userId));
+  }
 
   return deleted.length;
 }
@@ -173,7 +230,19 @@ export async function deleteInstallationsNotInList(
         notInArray(githubInstallations.installationId, installationIds),
       ),
     )
-    .returning({ id: githubInstallations.id });
+    .returning({ installationId: githubInstallations.installationId });
+
+  if (deleted.length > 0) {
+    await db.delete(githubInstallationRepositories).where(
+      and(
+        eq(githubInstallationRepositories.userId, userId),
+        inArray(
+          githubInstallationRepositories.installationId,
+          deleted.map((installation) => installation.installationId),
+        ),
+      ),
+    );
+  }
 
   return deleted.length;
 }
@@ -201,6 +270,44 @@ export async function updateInstallationsByInstallationId(
     .set({
       ...updates,
       updatedAt: new Date(),
+    })
+    .where(eq(githubInstallations.installationId, installationId))
+    .returning({ id: githubInstallations.id });
+
+  return updated.length;
+}
+
+export async function markInstallationRepoCacheSynced(
+  userId: string,
+  installationId: number,
+): Promise<number> {
+  const updated = await db
+    .update(githubInstallations)
+    .set({
+      repoCacheSyncedAt: new Date(),
+      repoCacheStaleAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(githubInstallations.userId, userId),
+        eq(githubInstallations.installationId, installationId),
+      ),
+    )
+    .returning({ id: githubInstallations.id });
+
+  return updated.length;
+}
+
+export async function markInstallationRepoCacheStaleByInstallationId(
+  installationId: number,
+): Promise<number> {
+  const now = new Date();
+  const updated = await db
+    .update(githubInstallations)
+    .set({
+      repoCacheStaleAt: now,
+      updatedAt: now,
     })
     .where(eq(githubInstallations.installationId, installationId))
     .returning({ id: githubInstallations.id });

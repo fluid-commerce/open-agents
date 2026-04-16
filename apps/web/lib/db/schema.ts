@@ -86,6 +86,8 @@ export const githubInstallations = pgTable(
       enum: ["all", "selected"],
     }).notNull(),
     installationUrl: text("installation_url"),
+    repoCacheSyncedAt: timestamp("repo_cache_synced_at"),
+    repoCacheStaleAt: timestamp("repo_cache_stale_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
@@ -97,6 +99,32 @@ export const githubInstallations = pgTable(
     uniqueIndex("github_installations_user_account_idx").on(
       table.userId,
       table.accountLogin,
+    ),
+  ],
+);
+
+export const githubInstallationRepositories = pgTable(
+  "github_installation_repositories",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    installationId: integer("installation_id").notNull(),
+    name: text("name").notNull(),
+    fullName: text("full_name").notNull(),
+    description: text("description"),
+    private: boolean("private").notNull(),
+    repoUpdatedAt: timestamp("repo_updated_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.userId, table.installationId, table.name],
+    }),
+    index("github_installation_repos_user_installation_idx").on(
+      table.userId,
+      table.installationId,
     ),
   ],
 );

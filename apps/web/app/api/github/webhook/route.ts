@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   deleteInstallationByInstallationId,
   getInstallationsByInstallationId,
+  markInstallationRepoCacheStaleByInstallationId,
   updateInstallationsByInstallationId,
   upsertInstallation,
 } from "@/lib/db/installations";
@@ -213,6 +214,8 @@ export async function POST(req: Request): Promise<Response> {
     const deleted = await deleteInstallationByInstallationId(installationId);
     return Response.json({ ok: true, deleted });
   }
+
+  await markInstallationRepoCacheStaleByInstallationId(installationId);
 
   if (!repositorySelection && !account) {
     return Response.json({ ok: true, ignored: true, reason: "no-updates" });

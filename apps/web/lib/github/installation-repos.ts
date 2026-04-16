@@ -1,15 +1,11 @@
 import { z } from "zod";
 
-const INSTALLATION_REPOS_MAX_PAGES = 20;
-
 const installationRepoSchema = z.object({
   name: z.string(),
   full_name: z.string(),
   description: z.string().nullable(),
   private: z.boolean(),
-  clone_url: z.string().url(),
   updated_at: z.string(),
-  language: z.string().nullable(),
   owner: z.object({
     login: z.string(),
   }),
@@ -24,25 +20,13 @@ export interface InstallationRepository {
   full_name: string;
   description: string | null;
   private: boolean;
-  clone_url: string;
   updated_at: string;
-  language: string | null;
 }
 
-interface ListUserInstallationRepositoriesOptions {
+interface FetchUserInstallationRepositoriesOptions {
   installationId: number;
   userToken: string;
   owner?: string;
-  query?: string;
-  limit?: number;
-}
-
-function normalizeLimit(limit?: number): number {
-  if (typeof limit !== "number" || !Number.isFinite(limit)) {
-    return 50;
-  }
-
-  return Math.max(1, Math.min(limit, 100));
 }
 
 function compareRepositoriesByRecentActivity(
@@ -65,27 +49,19 @@ function compareRepositoriesByRecentActivity(
   return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
 }
 
-/**
- * List repositories accessible to the user through a specific GitHub App
- * installation. Uses the user's OAuth token so GitHub computes the
- * intersection of repos the app can see and repos the user can see.
- */
-export async function listUserInstallationRepositories({
+export async function fetchUserInstallationRepositories({
   installationId,
   userToken,
   owner,
-  query,
-  limit,
-}: ListUserInstallationRepositoriesOptions): Promise<InstallationRepository[]> {
+}: FetchUserInstallationRepositoriesOptions): Promise<
+  InstallationRepository[]
+> {
   const ownerFilter = owner?.trim().toLowerCase();
-  const queryFilter = query?.trim().toLowerCase();
-  const normalizedLimit = normalizeLimit(limit);
+  const repositories: InstallationRepository[] = [];
+  const perPage = 100;
+  let page = 1;
 
-  const perPage = 50;
-  const maxPages = INSTALLATION_REPOS_MAX_PAGES;
-  const matchedRepos: z.infer<typeof installationRepoSchema>[] = [];
-
-  for (let page = 1; page <= maxPages; page++) {
+  while (true) {
     const endpoint = new URL(
       `https://api.github.com/user/installations/${installationId}/repositories`,
     );
@@ -116,38 +92,32 @@ export async function listUserInstallationRepositories({
       break;
     }
 
-    const pageMatches = parsed.data.repositories.filter((repo) => {
-      const matchesOwner = ownerFilter
-        ? repo.owner.login.toLowerCase() === ownerFilter
-        : true;
+    repositories.push(
+      ...parsed.data.repositories
+        .filter((repo) => {
+          if (!ownerFilter) {
+            return true;
+          }
 
-      const matchesQuery = queryFilter
-        ? repo.name.toLowerCase().includes(queryFilter)
-        : true;
-
-      return matchesOwner && matchesQuery;
-    });
-
-    matchedRepos.push(...pageMatches);
-
-    if (matchedRepos.length >= normalizedLimit) {
-      break;
-    }
+          return repo.owner.login.toLowerCase() === ownerFilter;
+        })
+        .map((repo) => ({
+          name: repo.name,
+          full_name: repo.full_name,
+          description: repo.description,
+          private: repo.private,
+          updated_at: repo.updated_at,
+        })),
+    );
 
     if (parsed.data.repositories.length < perPage) {
       break;
     }
+
+    page += 1;
   }
 
-  matchedRepos.sort(compareRepositoriesByRecentActivity);
+  repositories.sort(compareRepositoriesByRecentActivity);
 
-  return matchedRepos.slice(0, normalizedLimit).map((repo) => ({
-    name: repo.name,
-    full_name: repo.full_name,
-    description: repo.description,
-    private: repo.private,
-    clone_url: repo.clone_url,
-    updated_at: repo.updated_at,
-    language: repo.language,
-  }));
+  return repositories;
 }

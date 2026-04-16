@@ -9,7 +9,7 @@ import {
   SearchIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { z } from "zod";
 import {
@@ -197,21 +197,6 @@ export function RepoSelectorCompact({
     query: debouncedRepoSearch,
     limit: 25,
   });
-
-  // Sort repos: by updated_at desc if available, otherwise alphabetical
-  const sortedRepos = useMemo(() => {
-    const hasAnyDates = repos.some((r) => r.updated_at);
-    if (hasAnyDates) {
-      return [...repos].sort((a, b) => {
-        const dateA = a.updated_at ? new Date(a.updated_at).getTime() : 0;
-        const dateB = b.updated_at ? new Date(b.updated_at).getTime() : 0;
-        return dateB - dateA;
-      });
-    }
-    return [...repos].sort((a, b) =>
-      a.name.toLowerCase().localeCompare(b.name.toLowerCase()),
-    );
-  }, [repos]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -506,13 +491,13 @@ export function RepoSelectorCompact({
           <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
             {reposError}
           </div>
-        ) : sortedRepos.length === 0 ? (
+        ) : repos.length === 0 ? (
           <div className="flex h-full items-center justify-center px-4 text-sm text-muted-foreground">
             No repositories found.
           </div>
         ) : (
           <div className="divide-y divide-border/50 dark:divide-white/[0.06]">
-            {sortedRepos.slice(0, 25).map((repo) => (
+            {repos.slice(0, 25).map((repo) => (
               <div
                 key={repo.full_name}
                 className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent/30 dark:hover:bg-white/[0.03]"
@@ -539,7 +524,7 @@ export function RepoSelectorCompact({
                 </button>
               </div>
             ))}
-            {sortedRepos.length === 25 && !debouncedRepoSearch && (
+            {repos.length === 25 && !debouncedRepoSearch && (
               <div className="px-4 py-2.5 text-center text-xs text-muted-foreground">
                 Showing first 25 results. Use search to narrow.
               </div>
