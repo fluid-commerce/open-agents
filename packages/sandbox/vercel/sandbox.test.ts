@@ -442,6 +442,96 @@ describe("GitHub credential brokering", () => {
       },
     ]);
   });
+
+  test("applies Linear-only network policy when connecting with linearToken only", async () => {
+    updateNetworkPolicyCalls.length = 0;
+
+    await sandboxModule.VercelSandbox.connect("session_123", {
+      linearToken: "linear-token",
+      remainingTimeout: 0,
+    });
+
+    expect(updateNetworkPolicyCalls).toEqual([
+      {
+        allow: {
+          "api.linear.app": [
+            {
+              transform: [
+                { headers: { Authorization: "Bearer linear-token" } },
+              ],
+            },
+          ],
+          "*": [],
+        },
+      },
+    ]);
+  });
+
+  test("applies both GitHub and Linear network policy when connecting with both tokens", async () => {
+    updateNetworkPolicyCalls.length = 0;
+
+    await sandboxModule.VercelSandbox.connect("session_123", {
+      githubToken: "gh-token",
+      linearToken: "linear-token",
+      remainingTimeout: 0,
+    });
+
+    const basicAuthToken = Buffer.from(
+      "x-access-token:gh-token",
+      "utf-8",
+    ).toString("base64");
+
+    expect(updateNetworkPolicyCalls).toEqual([
+      {
+        allow: {
+          "api.github.com": [
+            {
+              transform: [{ headers: { Authorization: "Bearer gh-token" } }],
+            },
+          ],
+          "uploads.github.com": [
+            {
+              transform: [{ headers: { Authorization: "Bearer gh-token" } }],
+            },
+          ],
+          "codeload.github.com": [
+            {
+              transform: [{ headers: { Authorization: "Bearer gh-token" } }],
+            },
+          ],
+          "github.com": [
+            {
+              transform: [
+                {
+                  headers: {
+                    Authorization: `Basic ${basicAuthToken}`,
+                  },
+                },
+              ],
+            },
+          ],
+          "api.linear.app": [
+            {
+              transform: [
+                { headers: { Authorization: "Bearer linear-token" } },
+              ],
+            },
+          ],
+          "*": [],
+        },
+      },
+    ]);
+  });
+
+  test("skips network policy update when connecting with neither token", async () => {
+    updateNetworkPolicyCalls.length = 0;
+
+    await sandboxModule.VercelSandbox.connect("session_123", {
+      remainingTimeout: 0,
+    });
+
+    expect(updateNetworkPolicyCalls).toEqual([]);
+  });
 });
 
 describe("VercelSandbox.create", () => {
