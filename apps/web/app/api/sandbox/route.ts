@@ -90,11 +90,27 @@ async function syncVercelCliAuthForSandbox(params: {
   });
 }
 
+const LINEAR_SKILL_REF = {
+  source: "fluid-commerce/open-agents",
+  skillName: "linear",
+} as const;
+
 async function installSessionGlobalSkills(params: {
   sessionRecord: SessionRecord;
   sandbox: Awaited<ReturnType<typeof connectSandbox>>;
+  hasLinearToken?: boolean;
 }): Promise<void> {
-  const globalSkillRefs = params.sessionRecord.globalSkillRefs ?? [];
+  const sessionRefs = params.sessionRecord.globalSkillRefs ?? [];
+
+  // Auto-inject the Linear skill when the user has Linear connected
+  const hasLinearSkill = sessionRefs.some(
+    (ref) => ref.skillName === LINEAR_SKILL_REF.skillName,
+  );
+  const globalSkillRefs =
+    params.hasLinearToken && !hasLinearSkill
+      ? [...sessionRefs, LINEAR_SKILL_REF]
+      : sessionRefs;
+
   if (globalSkillRefs.length === 0) {
     return;
   }
@@ -265,6 +281,7 @@ export async function POST(req: Request) {
         await installSessionGlobalSkills({
           sessionRecord,
           sandbox,
+          hasLinearToken: !!linearToken,
         });
       } catch (error) {
         console.error(
