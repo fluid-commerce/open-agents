@@ -41,36 +41,56 @@ Use `printf '%s'` (no trailing newline) — never `echo` — when piping values 
 - Linear webhooks (we react to user prompts, not push events).
 - Linear-side automation (creating views, mutating teams, time tracking).
 - Rich Linear UI in the web app — just a connect/disconnect card in Settings, no scope display.
-- Per-team scoping / project filtering.
+- Multi-workspace support per user. Users can connect exactly one Linear workspace at a time; to switch workspaces, disconnect and reconnect.
 
 ## Decisions locked in
 
 - **Scopes**: `read`, `write`, `issues:create`, `comments:create`. Sufficient for the read/list/create/comment/state-change operations in the skill. Don't request `admin`.
-- **Settings UI**: minimal — a single Connect/Disconnect card. No badge of granted scopes (decided: noise).
+- **Scope format in authorize URL**: comma-separated (confirmed against Linear docs), e.g. `scope=read,write,issues:create,comments:create`.
+- **Settings UI**: minimal — a single Connect/Disconnect card showing `displayName · workspaceName`. No scope badge.
 - **Skill implementation**: Node scripts using `@linear/sdk` (decided over bash+curl+jq). Type-safe, easier to maintain, idiomatic for a TS codebase.
 - **Token attribution**: per-user OAuth tokens, not a team-wide service account.
+- **Account helpers**: per-provider functions (`upsertLinearAccount`, `getLinearAccount`, `deleteLinearAccount`) matching the GitHub pattern. Do NOT generalize to a single `upsertAccount` — wait for a third provider (rule of three).
+- **PKCE**: enabled. Mirror `apps/web/lib/vercel/oauth.ts`'s verifier/challenge pattern. Vercel, not GitHub, is the closer template for Linear's flow.
+- **Client-ID env var**: plain `LINEAR_CLIENT_ID` (not `NEXT_PUBLIC_LINEAR_CLIENT_ID`). Nothing consumes it client-side; every read is in a server route.
+- **Email on settings card**: no. Matches existing GitHub card (shows `login` only). Can add later if needed.
+- **Workspace capture**: during the OAuth callback, fetch `viewer.organization { urlKey, name }` and store `organization.name` in a new nullable `workspaceName` column on the `accounts` table. Surfaces to the settings card so users can verify the right workspace was connected.
 
 ## Architectural pattern
 
-Mirrors the existing GitHub user-OAuth flow. Each layer has a one-to-one analog:
+Mirrors the existing GitHub user-OAuth flow. Each layer has a one-to-one analog, but Linear's OAuth is closer to Vercel's shape (PKCE, standard RFC 6749 flow) than GitHub's.
 
-| GitHub layer | File | Linear analog |
+| Concern | Existing GitHub layer | Existing Vercel layer | New Linear file |
+| --- | --- | --- | --- |
+| OAuth helpers | `apps/web/lib/github/` (scattered) | `apps/web/lib/vercel/oauth.ts` (use as **structural template** — PKCE + clean exports) | `apps/web/lib/linear/oauth.ts` |
+| Token retrieval (decrypt + auto-refresh) | `apps/web/lib/github/user-token.ts` | — | `apps/web/lib/linear/user-token.ts` |
+| Sign-in initiator | `apps/web/app/api/auth/signin/github/*` | `apps/web/app/api/auth/signin/vercel/route.ts` (use as template for PKCE cookies) | `apps/web/app/api/auth/signin/linear/route.ts` |
+| Callback | `apps/web/app/api/github/app/callback/route.ts` | `apps/web/app/api/auth/vercel/callback/route.ts` (use as template) | `apps/web/app/api/linear/callback/route.ts` |
+| Unlink | `apps/web/app/api/auth/github/unlink/route.ts` (use as template) | — | `apps/web/app/api/auth/linear/unlink/route.ts` |
+| Account row | `accounts.provider = "github"` | (lives in `users` table, not `accounts`) | `accounts.provider = "linear"` (extend enum; add `workspaceName` column) |
+| Token retrieval call sites | `getUserGitHubToken()` in 3 files that matter for sandbox flow | — | Add `getUserLinearToken()` in the same 3 files |
+| Network brokering | `buildGitHubCredentialBrokeringPolicy()` in `packages/sandbox/vercel/sandbox.ts` | — | Replace with unified `buildCredentialBrokeringPolicy({ github, linear })`; update both create and reconnect call sites |
+| Settings UI card | `apps/web/app/settings/accounts-section.tsx` | — | Add Linear card to same file; show `displayName · workspaceName` |
+
+The agent itself doesn't need to know about Linear as a feature — only the skill does. The agent's bash tool runs the skill scripts inside the sandbox, where the network layer transparently injects the Bearer token. However, the sandbox's `environmentDetails` runtime prompt MUST be updated (Phase 4) so the agent knows Linear API calls are auto-authenticated and it doesn't try to pass tokens into scripts.
+
+### Token retrieval call sites (audit)
+
+Grep for `getUserGitHubToken` shows ~15 hits, but only 3 matter for sandbox network-policy brokering:
+
+| File | Line | Needs Linear token threading? |
 | --- | --- | --- |
-| OAuth helpers | `apps/web/lib/vercel/oauth.ts` (use as the closest template — clean, complete) | `apps/web/lib/linear/oauth.ts` (NEW) |
-| Token retrieval (decrypt + auto-refresh) | `apps/web/lib/github/user-token.ts` | `apps/web/lib/linear/user-token.ts` (NEW) |
-| Sign-in initiator | `apps/web/app/api/auth/signin/vercel/route.ts` | `apps/web/app/api/auth/signin/linear/route.ts` (NEW) |
-| Callback | `apps/web/app/api/github/app/callback/route.ts` (the OAuth-exchange portion) | `apps/web/app/api/linear/callback/route.ts` (NEW) |
-| Unlink | `apps/web/app/api/auth/github/unlink/route.ts` | `apps/web/app/api/auth/linear/unlink/route.ts` (NEW) |
-| Account row | `accounts.provider = "github"` | `accounts.provider = "linear"` (extend enum) |
-| Token retrieval call site | `getUserGitHubToken()` in `apps/web/app/api/sandbox/route.ts` | Add `getUserLinearToken()` next to it |
-| Network brokering | `buildGitHubCredentialBrokeringPolicy()` in `packages/sandbox/vercel/sandbox.ts` | Extend (or add sibling) for `api.linear.app` |
-| Settings UI card | `apps/web/app/settings/accounts-section.tsx` | Add Linear card to same file |
+| `apps/web/app/api/sandbox/route.ts` | 132 | Yes — create path |
+| `apps/web/app/api/chat/_lib/runtime.ts` | 53 | Yes — reconnect on every chat turn |
+| `apps/web/lib/sandbox/archive-session.ts` | 74 | No — archive flow, no active agent use |
 
-The agent itself doesn't need to know about Linear — only the skill does. The agent's bash tool runs the skill scripts inside the sandbox, where the network layer transparently injects the Bearer token.
+Everything else (`auto-commit-direct`, `auto-pr-direct`, `/api/pr/*`, `/api/github/*`, PR/merge/close routes, etc.) is GitHub-API-direct for web UI or PR automation — unrelated to sandbox network policy.
+
+Because `runtime.ts:53` re-fetches the token on every chat turn and `VercelSandbox.connect` re-applies the network policy, the proxy's injected token is refreshed at every turn boundary. Linear tokens live 24h; chat turns max out ~13 min (`maxDuration = 800s`), so intra-turn expiry is rare and self-heals on the next turn.
 
 ## Phase 0 — Linear-side setup (manual, ~5 min)
 
-1. Create a dedicated Linear workspace named e.g. `Open Agents OAuth`. (Linear documentation strongly recommends a separate workspace to manage OAuth applications cleanly.)
+1. Create a dedicated Linear workspace named e.g. `Open Agents OAuth`. Linear documentation strongly recommends a separate workspace to manage OAuth applications cleanly.
 2. In that workspace: **Settings → API → OAuth Applications → New**.
 3. Configure:
    - **Name**: `Open Agents`
@@ -82,24 +102,67 @@ The agent itself doesn't need to know about Linear — only the skill does. The 
 
 Linear docs reference: https://linear.app/developers/oauth-2-0-authentication
 
+## Phase 0.5 — Verify sandbox header-overwrite behavior (CRITICAL gate)
+
+**Do this BEFORE writing any other code.** The `@linear/sdk` approach in Phase 6 depends on this behavior. If it doesn't hold, pivot to raw `fetch` before building five skill scripts you'd have to rewrite.
+
+The question: when a sandbox network policy has `transform.headers.Authorization = "Bearer REAL_TOKEN"` and the script inside the sandbox sends `Authorization: Bearer PLACEHOLDER`, does the proxy **replace** or **append**? The SDK approach requires **replace** semantics.
+
+**Test methodology (~10 minutes):**
+
+1. Get a temporary throwaway URL from https://webhook.site (records full headers of incoming requests).
+2. In a throwaway branch, temporarily patch `packages/sandbox/vercel/sandbox.ts` to add a hardcoded transform for `webhook.site`:
+   ```ts
+   "webhook.site": [
+     { transform: [{ headers: { Authorization: "Bearer REAL_INJECTED" } }] },
+   ],
+   ```
+3. Deploy that branch to a preview, create a session, and from the agent bash tool run:
+   ```bash
+   curl -H "Authorization: Bearer PLACEHOLDER" https://webhook.site/<your-id>
+   ```
+4. Look at the webhook.site dashboard for the recorded request headers.
+
+**Interpretation:**
+- Only `Bearer REAL_INJECTED` present → **replace**. SDK approach works as designed in Phase 6. Proceed.
+- Only `Bearer PLACEHOLDER` present → proxy is pass-through; brokering broken. Halt — something is wrong with the sandbox config itself.
+- Both present (two `Authorization` headers) → **append**. Which one wins depends on the destination. SDK approach is fragile; pivot:
+  - **Fallback A:** pass a custom `fetch` into `LinearClient` that strips the Authorization header before the request leaves the VM. Keeps the SDK.
+  - **Fallback B:** drop `@linear/sdk` entirely; use raw `fetch` against `https://api.linear.app/graphql`. Simpler but loses SDK ergonomics. Covered in [Out-of-scope](#out-of-scope-follow-ups) as a rewrite path if needed.
+
+Discard the throwaway branch once you have the answer. Document the answer in this plan (overwrite this section with a one-line "confirmed replace as of YYYY-MM-DD") so future-you doesn't re-run the test.
+
 ## Phase 1 — Database
 
-### 1.1 Locate the provider enum
+### 1.1 Extend the provider enum + add `workspaceName` column
 
 **File**: `apps/web/lib/db/schema.ts`
 
-Find the `accounts` table definition. The `provider` column uses a Drizzle `pgEnum`. Currently includes `"github"` and `"vercel"`. Add `"linear"` to the enum array.
+Current state (check before editing, may have drifted):
+- `accounts.provider` enum is currently `["github"]` only. `vercel` lives on the `users` table, not `accounts`.
+- The `accounts` table has no `email`, `name`, or workspace columns — just `username`, `externalUserId`, `accessToken`, `refreshToken`, `expiresAt`, `scope`.
 
-The `accounts` table schema already supports everything Linear needs (no new columns):
-- `userId` (FK to users)
-- `provider` (the enum we're extending)
-- `externalUserId` (the Linear user id)
-- `accessToken` (encrypted with `lib/crypto.ts`)
-- `refreshToken` (encrypted)
-- `expiresAt`
-- `scope` (space-separated string of granted scopes)
-- `username` (Linear's `displayName`)
-- timestamps
+Changes:
+1. Extend `provider` enum to `["github", "linear"]`.
+2. Add a new nullable column `workspaceName text` (for Linear: stores the human-readable workspace name like "Fluid Commerce"; null for GitHub rows).
+
+```ts
+export const accounts = pgTable(
+  "accounts",
+  {
+    // ... existing columns
+    provider: text("provider", {
+      enum: ["github", "linear"],  // was: ["github"]
+    })
+      .notNull()
+      .default("github"),
+    // ... other existing columns
+    workspaceName: text("workspace_name"),  // NEW — nullable, per-provider use
+    // ... timestamps
+  },
+  // ... indexes unchanged
+);
+```
 
 ### 1.2 Generate migration
 
@@ -107,27 +170,50 @@ The `accounts` table schema already supports everything Linear needs (no new col
 bun run --cwd apps/web db:generate
 ```
 
-This writes a new SQL file under `apps/web/lib/db/migrations/` named `XXXX_<auto_name>.sql` containing an `ALTER TYPE ... ADD VALUE 'linear'` statement. Commit the generated `.sql` file alongside the schema change.
+This writes a new SQL file under `apps/web/lib/db/migrations/` with:
+- An `ALTER TYPE ... ADD VALUE 'linear'` for the enum
+- An `ALTER TABLE accounts ADD COLUMN workspace_name text` statement
+
+Commit the generated `.sql` file alongside the schema change.
 
 **Do NOT use `db:push`.** That's for local throwaway DBs only. Migrations run automatically during `bun run build` via `apps/web/lib/db/migrate.ts`, so every Vercel deploy applies pending migrations.
 
-### 1.3 Add account helper
+### 1.3 Add per-provider account helpers
 
 **File**: `apps/web/lib/db/accounts.ts`
 
-Mirror the existing `getGitHubAccount(userId)` function. Add:
+Mirror the existing `upsertGitHubAccount` / `getGitHubAccount` / `deleteGitHubAccount` trio. Do NOT generalize to `upsertAccount` — wait for a third provider. The existing pattern is explicit per-provider and we're keeping it for now.
 
 ```ts
-export async function getLinearAccount(userId: string) {
-  // SELECT FROM accounts WHERE userId = userId AND provider = 'linear' LIMIT 1
-}
+export async function upsertLinearAccount(data: {
+  userId: string;
+  externalUserId: string;      // Linear viewer.id
+  accessToken: string;          // already encrypted
+  refreshToken?: string;        // already encrypted
+  expiresAt?: Date;
+  scope?: string;
+  username: string;             // Linear viewer.displayName
+  workspaceName?: string;       // Linear viewer.organization.name
+}): Promise<string> { /* ... */ }
 
-export async function deleteLinearAccount(userId: string) {
-  // DELETE FROM accounts WHERE userId = userId AND provider = 'linear'
-}
+export async function getLinearAccount(userId: string): Promise<{
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date | null;
+  username: string;
+  externalUserId: string;
+  workspaceName: string | null;
+} | null> { /* ... */ }
+
+export async function updateLinearAccountTokens(
+  userId: string,
+  data: { accessToken: string; refreshToken?: string; expiresAt?: Date },
+): Promise<void> { /* ... */ }
+
+export async function deleteLinearAccount(userId: string): Promise<void> { /* ... */ }
 ```
 
-Look at the existing GitHub helpers for the exact Drizzle syntax to copy.
+Copy the Drizzle syntax from the existing GitHub helpers. Wire `workspaceName` through `upsert` and `get`; `updateLinearAccountTokens` doesn't touch it.
 
 ## Phase 2 — OAuth library
 
@@ -135,11 +221,10 @@ Look at the existing GitHub helpers for the exact Drizzle syntax to copy.
 
 **New file**: `apps/web/lib/linear/oauth.ts`
 
-Use `apps/web/lib/vercel/oauth.ts` as the structural template — Linear's flow is similar in shape (authorize → exchange → refresh → revoke → userinfo). Differences:
+Use `apps/web/lib/vercel/oauth.ts` as the structural template (PKCE is already implemented there). Linear-specific differences:
 
-- No PKCE required (Linear supports it but not required; skip PKCE for now to keep the flow simple — can add later)
-- Authorization URL uses `scope` as a **comma-separated** list (not space-separated like Vercel)
-- User info comes from a GraphQL query, not a REST endpoint
+- Scope is **comma-separated** (not space-separated).
+- User info comes from a GraphQL query, not a REST endpoint. Include workspace.
 
 Required exports:
 
@@ -156,10 +241,15 @@ export const LINEAR_OAUTH_SCOPES = [
   "comments:create",
 ] as const;
 
+// PKCE — reuse the pattern from lib/vercel/oauth.ts
+export function generateCodeVerifier(): string;         // crypto.randomBytes(32).toString("base64url")
+export async function generateCodeChallenge(verifier: string): Promise<string>;  // sha256 -> base64url
+
 export function getLinearAuthorizationUrl(params: {
   clientId: string;
   redirectUri: string;
   state: string;
+  codeChallenge: string;
 }): string;
 
 interface LinearTokenResponse {
@@ -167,11 +257,12 @@ interface LinearTokenResponse {
   token_type: string;     // "Bearer"
   expires_in: number;     // 86400 (24 hours)
   refresh_token: string;
-  scope: string;          // space-separated string of granted scopes
+  scope: string;          // space-separated string of granted scopes (in response)
 }
 
 export async function exchangeLinearCode(params: {
   code: string;
+  codeVerifier: string;        // PKCE
   clientId: string;
   clientSecret: string;
   redirectUri: string;
@@ -184,26 +275,28 @@ export async function refreshLinearToken(params: {
 }): Promise<LinearTokenResponse>;
 
 export async function revokeLinearToken(params: {
-  token: string;
+  token: string;              // pass either access_token or refresh_token
   clientId: string;
   clientSecret: string;
 }): Promise<void>;
 
 export interface LinearUserInfo {
-  id: string;          // Linear user UUID
+  id: string;              // Linear user UUID
   name: string;
   displayName: string;
   email: string;
+  organizationName: string;   // viewer.organization.name
+  organizationUrlKey: string; // viewer.organization.urlKey
 }
 
 export async function getLinearUserInfo(accessToken: string): Promise<LinearUserInfo>;
 ```
 
-For `getLinearUserInfo`, send a POST to `LINEAR_GRAPHQL_URL` with body:
+For `getLinearUserInfo`, POST to `LINEAR_GRAPHQL_URL` with:
 ```json
-{ "query": "query { viewer { id name displayName email } }" }
+{ "query": "query { viewer { id name displayName email organization { id urlKey name } } }" }
 ```
-and `Authorization: Bearer <accessToken>`. Parse `data.viewer` from the response.
+and `Authorization: Bearer <accessToken>`. Flatten the response to the shape above.
 
 For `getLinearAuthorizationUrl`, build:
 ```
@@ -211,18 +304,20 @@ https://linear.app/oauth/authorize
   ?client_id=...
   &redirect_uri=...
   &response_type=code
-  &scope=read,write,issues:create,comments:create
+  &scope=read,write,issues:create,comments:create    (COMMA-separated)
   &state=...
+  &code_challenge=...                                  (PKCE)
+  &code_challenge_method=S256
   &prompt=consent
 ```
 
-Token POSTs use `Content-Type: application/x-www-form-urlencoded` with `URLSearchParams` body — same as Vercel's `exchangeVercelCode`.
+Token POSTs use `Content-Type: application/x-www-form-urlencoded` with `URLSearchParams` body — same as Vercel's `exchangeVercelCode`. The exchange call includes `code_verifier` (PKCE).
 
 ### 2.2 Token retrieval helper
 
 **New file**: `apps/web/lib/linear/user-token.ts`
 
-Mirror `apps/web/lib/github/user-token.ts`. Exports:
+Mirror `apps/web/lib/github/user-token.ts` structure. Export:
 
 ```ts
 export async function getUserLinearToken(userId: string): Promise<string | null>;
@@ -231,12 +326,14 @@ export async function getUserLinearToken(userId: string): Promise<string | null>
 Logic:
 1. Look up the user's `linear` account via `getLinearAccount(userId)`. Return `null` if not found.
 2. Decrypt `accessToken` with `decrypt()` from `apps/web/lib/crypto.ts`.
-3. Check `expiresAt`: if it's within 5 minutes of now (or already past), refresh.
-4. To refresh: decrypt `refreshToken`, call `refreshLinearToken({...})`, then `upsertAccount()` with the new encrypted access/refresh pair and new `expiresAt = new Date(Date.now() + expires_in * 1000)`.
+3. Check `expiresAt`: if within 5 minutes of now (or past), refresh.
+4. To refresh: decrypt `refreshToken`, call `refreshLinearToken(...)`, then `updateLinearAccountTokens(...)` with the new encrypted access/refresh pair and `expiresAt = new Date(Date.now() + expires_in * 1000)`.
 5. Return the (possibly refreshed) decrypted access token.
 6. On refresh failure (e.g. revoked refresh token), log and return `null` so callers can proxy a "reconnect Linear" hint to the user.
 
-**Concurrency**: don't worry about this for v1. If we see token-refresh races in practice, add a per-userId in-memory mutex (the GitHub helper currently doesn't have one either).
+Read client credentials from `process.env.LINEAR_CLIENT_ID` and `process.env.LINEAR_CLIENT_SECRET` (not `NEXT_PUBLIC_*`).
+
+**Concurrency**: don't worry about it for v1. Linear rotates refresh tokens on use (confirmed against docs), so concurrent refreshes for the same user CAN race and one will fail. Acceptable for v1; matches GitHub's current behavior. Add a per-user mutex later if it becomes a real issue.
 
 ## Phase 3 — Routes
 
@@ -246,11 +343,11 @@ All routes live under `apps/web/app/api/...`.
 
 **New file**: `apps/web/app/api/auth/signin/linear/route.ts`
 
-Use `apps/web/app/api/auth/signin/vercel/route.ts` as the template. Differences: no PKCE, no code verifier — just `state`.
+Use `apps/web/app/api/auth/signin/vercel/route.ts` as the template — it already does PKCE.
 
 ```ts
 export async function GET(req: NextRequest): Promise<Response> {
-  const clientId = process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID;
+  const clientId = process.env.LINEAR_CLIENT_ID;
   if (!clientId) {
     return Response.redirect(new URL("/?error=linear_not_configured", req.url));
   }
@@ -266,28 +363,27 @@ export async function GET(req: NextRequest): Promise<Response> {
     );
   }
 
-  const state = generateState(); // arctic or crypto.randomBytes(32).toString("base64url")
+  const state = crypto.randomBytes(32).toString("base64url");
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
+
   const store = await cookies();
   const redirectTo =
     req.nextUrl.searchParams.get("next") ?? "/settings/accounts";
 
-  store.set("linear_auth_state", state, {
+  const cookieOpts = {
     path: "/",
     secure: process.env.NODE_ENV === "production",
     httpOnly: true,
     maxAge: 60 * 10,
-    sameSite: "lax",
-  });
-  store.set("linear_auth_redirect_to", redirectTo, {
-    path: "/",
-    secure: process.env.NODE_ENV === "production",
-    httpOnly: true,
-    maxAge: 60 * 10,
-    sameSite: "lax",
-  });
+    sameSite: "lax" as const,
+  };
+  store.set("linear_auth_state", state, cookieOpts);
+  store.set("linear_auth_verifier", codeVerifier, cookieOpts);
+  store.set("linear_auth_redirect_to", redirectTo, cookieOpts);
 
   const redirectUri = `${req.nextUrl.origin}/api/linear/callback`;
-  const url = getLinearAuthorizationUrl({ clientId, redirectUri, state });
+  const url = getLinearAuthorizationUrl({ clientId, redirectUri, state, codeChallenge });
   return Response.redirect(url);
 }
 ```
@@ -296,7 +392,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
 **New file**: `apps/web/app/api/linear/callback/route.ts`
 
-Use `apps/web/app/api/auth/vercel/callback/route.ts` as the template. Pattern:
+Use `apps/web/app/api/auth/vercel/callback/route.ts` as the template.
 
 ```ts
 export async function GET(req: NextRequest): Promise<Response> {
@@ -305,6 +401,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   const error = req.nextUrl.searchParams.get("error");
   const cookieStore = await cookies();
   const storedState = cookieStore.get("linear_auth_state")?.value;
+  const codeVerifier = cookieStore.get("linear_auth_verifier")?.value;
   const rawRedirectTo =
     cookieStore.get("linear_auth_redirect_to")?.value ?? "/settings/accounts";
   const storedRedirectTo =
@@ -314,6 +411,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   function clearCookies() {
     cookieStore.delete("linear_auth_state");
+    cookieStore.delete("linear_auth_verifier");
     cookieStore.delete("linear_auth_redirect_to");
   }
 
@@ -327,7 +425,7 @@ export async function GET(req: NextRequest): Promise<Response> {
   if (error) {
     return redirectBack({ linear: "error", reason: error });
   }
-  if (!code || !state || storedState !== state) {
+  if (!code || !state || storedState !== state || !codeVerifier) {
     return redirectBack({ linear: "error", reason: "invalid_state" });
   }
 
@@ -336,7 +434,7 @@ export async function GET(req: NextRequest): Promise<Response> {
     return redirectBack({ linear: "error", reason: "not_signed_in" });
   }
 
-  const clientId = process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID;
+  const clientId = process.env.LINEAR_CLIENT_ID;
   const clientSecret = process.env.LINEAR_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     return redirectBack({ linear: "error", reason: "not_configured" });
@@ -344,21 +442,21 @@ export async function GET(req: NextRequest): Promise<Response> {
 
   try {
     const redirectUri = `${req.nextUrl.origin}/api/linear/callback`;
-    const tokens = await exchangeLinearCode({ code, clientId, clientSecret, redirectUri });
+    const tokens = await exchangeLinearCode({
+      code, codeVerifier, clientId, clientSecret, redirectUri,
+    });
     const userInfo = await getLinearUserInfo(tokens.access_token);
     const tokenExpiresAt = new Date(Date.now() + tokens.expires_in * 1000);
 
-    await upsertAccount({
+    await upsertLinearAccount({
       userId: session.user.id,
-      provider: "linear",
       externalUserId: userInfo.id,
       accessToken: encrypt(tokens.access_token),
       refreshToken: encrypt(tokens.refresh_token),
       scope: tokens.scope,
       username: userInfo.displayName,
-      email: userInfo.email,
-      name: userInfo.name,
-      tokenExpiresAt,
+      workspaceName: userInfo.organizationName,
+      expiresAt: tokenExpiresAt,
     });
 
     return redirectBack({ linear: "connected" });
@@ -369,13 +467,11 @@ export async function GET(req: NextRequest): Promise<Response> {
 }
 ```
 
-`upsertAccount` may need a small generalization if it currently hardcodes `provider: "github" | "vercel"` — extend its type signature to include `"linear"`.
-
 ### 3.3 Unlink endpoint
 
 **New file**: `apps/web/app/api/auth/linear/unlink/route.ts`
 
-Use `apps/web/app/api/auth/github/unlink/route.ts` as the template:
+Use `apps/web/app/api/auth/github/unlink/route.ts` as the template. Revoke BOTH tokens defensively — Linear's docs don't specify whether revoking the access token cascades to the refresh token.
 
 ```ts
 export async function POST(): Promise<Response> {
@@ -388,14 +484,22 @@ export async function POST(): Promise<Response> {
     return Response.json({ success: true, alreadyUnlinked: true });
   }
 
-  const clientId = process.env.NEXT_PUBLIC_LINEAR_CLIENT_ID;
+  const clientId = process.env.LINEAR_CLIENT_ID;
   const clientSecret = process.env.LINEAR_CLIENT_SECRET;
   if (clientId && clientSecret) {
     try {
       const accessToken = decrypt(account.accessToken);
       await revokeLinearToken({ token: accessToken, clientId, clientSecret });
     } catch (err) {
-      console.error("Linear token revoke failed (continuing):", err);
+      console.error("Linear access-token revoke failed (continuing):", err);
+    }
+    if (account.refreshToken) {
+      try {
+        const refreshToken = decrypt(account.refreshToken);
+        await revokeLinearToken({ token: refreshToken, clientId, clientSecret });
+      } catch (err) {
+        console.error("Linear refresh-token revoke failed (continuing):", err);
+      }
     }
   }
 
@@ -404,75 +508,111 @@ export async function POST(): Promise<Response> {
 }
 ```
 
+**Note on active sessions:** the sandbox proxy holds the decrypted token until the next chat turn's reconnect refreshes the network policy. This means there's a brief window (up to the duration of the current chat turn) where a revoked token remains usable from inside active sandboxes. This matches GitHub's existing behavior and is acceptable — the only user who benefits from that token is the user who just disconnected.
+
 ## Phase 4 — Sandbox network brokering
 
-The pattern: the Vercel Sandbox SDK accepts a `networkPolicy` with an `allow` map. Each domain entry can include `transform` rules that **inject HTTP headers** into outbound requests. Scripts inside the sandbox call the API with no auth headers; the proxy adds them transparently.
-
-### 4.1 Extend the network policy builder
+### 4.1 Unify the network policy builder
 
 **File**: `packages/sandbox/vercel/sandbox.ts`
 
-Currently `buildGitHubCredentialBrokeringPolicy(token?: string): SandboxNetworkPolicy` exists around line 44–80. It returns a policy with entries for `api.github.com`, `uploads.github.com`, `codeload.github.com`, `github.com`, each with a `transform: [{ headers: { Authorization: "Bearer ..." } }]`.
-
-**Refactor approach** (recommended): keep `buildGitHubCredentialBrokeringPolicy` as-is, add a new `buildLinearCredentialBrokeringPolicy(token?: string)`, and a merger:
+Replace the current `buildGitHubCredentialBrokeringPolicy(token?: string)` with a unified builder that accepts both tokens. Key invariant: **always include `"*": []`** in the `allow` map so egress to non-brokered hosts stays open. Forgetting this rule turns the sandbox into a deny-by-default firewall and breaks npm installs, agent-browser, etc.
 
 ```ts
 function buildCredentialBrokeringPolicy(tokens: {
   github?: string;
   linear?: string;
 }): SandboxNetworkPolicy {
-  const gh = buildGitHubCredentialBrokeringPolicy(tokens.github);
-  const ln = buildLinearCredentialBrokeringPolicy(tokens.linear);
-  return {
-    allow: { ...gh.allow, ...ln.allow },
-  };
+  const allow: SandboxNetworkPolicy["allow"] = { "*": [] };
+
+  if (tokens.github) {
+    const basicAuthToken = Buffer.from(
+      `x-access-token:${tokens.github}`,
+      "utf-8",
+    ).toString("base64");
+    allow["api.github.com"] = [
+      { transform: [{ headers: { Authorization: `Bearer ${tokens.github}` } }] },
+    ];
+    allow["uploads.github.com"] = [
+      { transform: [{ headers: { Authorization: `Bearer ${tokens.github}` } }] },
+    ];
+    allow["codeload.github.com"] = [
+      { transform: [{ headers: { Authorization: `Bearer ${tokens.github}` } }] },
+    ];
+    allow["github.com"] = [
+      { transform: [{ headers: { Authorization: `Basic ${basicAuthToken}` } }] },
+    ];
+  }
+
+  if (tokens.linear) {
+    allow["api.linear.app"] = [
+      { transform: [{ headers: { Authorization: `Bearer ${tokens.linear}` } }] },
+    ];
+  }
+
+  return { allow };
 }
 ```
 
-`buildLinearCredentialBrokeringPolicy` returns:
+Delete `buildGitHubCredentialBrokeringPolicy` — the unified function replaces it.
 
-```ts
-function buildLinearCredentialBrokeringPolicy(
-  token?: string,
-): SandboxNetworkPolicy {
-  if (!token) return DEFAULT_NETWORK_POLICY;
-  return {
-    allow: {
-      "api.linear.app": [
-        { transform: [{ headers: { Authorization: `Bearer ${token}` } }] },
-      ],
-    },
-  };
-}
-```
+### 4.2 Update both call sites
 
-Update the call site (search for `buildGitHubCredentialBrokeringPolicy(githubToken)` in `sandbox.ts`) to use `buildCredentialBrokeringPolicy({ github: githubToken, linear: linearToken })`.
+Two places currently apply the network policy — both need the unified builder:
 
-### 4.2 Plumb the Linear token through sandbox connect options
+- `VercelSandbox.create` (~line 531): `networkPolicy: buildGitHubCredentialBrokeringPolicy(githubToken)` → `networkPolicy: buildCredentialBrokeringPolicy({ github: githubToken, linear: linearToken })`
+- `syncGitHubCredentialBrokering` function (~line 85–108) and its call at `VercelSandbox.connect` (~line 726): rename to `syncCredentialBrokering`, accept `tokens: { github?: string; linear?: string }`, pass through to the unified builder.
+
+**This is load-bearing:** chat turns hit the reconnect path (the sandbox already exists when chat runs), so if only `create` is updated, every chat turn after the first drops Linear brokering silently.
+
+### 4.3 Plumb `linearToken` through connect options
 
 **File**: `packages/sandbox/vercel/connect.ts`
 
 The `ConnectOptions` interface currently has `githubToken?: string`. Add `linearToken?: string`. Pass it through `buildCreateConfig` and into `VercelSandbox.connect/create` calls so it flows into the policy builder.
 
-Search for every reference to `githubToken` in this file and add a parallel `linearToken` next to it.
+Also update the `VercelSandboxConfig` type to accept `linearToken?: string` on the create path.
 
-### 4.3 Pass the token from the API route
+### 4.4 Update the sandbox runtime prompt (`environmentDetails`)
 
-**File**: `apps/web/app/api/sandbox/route.ts`
+**File**: `packages/sandbox/vercel/sandbox.ts` — the `get environmentDetails()` string (~line 419–432).
 
-In the `POST` handler, currently:
+The runtime prompt currently documents GitHub brokering but not Linear. Without this, the agent will try to pass `LINEAR_API_KEY` env vars, ask the user for a token, or get confused on a 401.
+
+Add a conditional line next to the GitHub one. "Conditional" = emit the line only when a Linear token was actually passed at sandbox create/connect time. This requires storing the presence (not the value) of the token on the sandbox instance; the simplest approach is adding a private boolean `private _linearBrokerEnabled?: boolean` set alongside the existing constructor args.
+
+Proposed addition (between the existing GitHub line and the Node.js line):
+
+```
+- Linear API requests (api.linear.app) are authenticated automatically via credential brokering when the user has connected Linear; do not pass tokens into scripts or env vars. If a Linear call returns 401, tell the user to connect Linear at /settings/accounts.
+```
+
+Why conditional (not always-on like GitHub):
+- GitHub is required for the app to function (every session has a repo). Always-on is accurate.
+- Linear is optional. Claiming "Linear is authenticated automatically" when it isn't misleads the agent into retrying on 401s instead of surfacing "you haven't connected Linear."
+
+### 4.5 Thread `linearToken` through the 3 call sites
+
+Audit from earlier grep identified 3 files:
+
+**`apps/web/app/api/sandbox/route.ts`** (~line 132):
 ```ts
 const githubToken = await getUserGitHubToken(session.user.id);
+const linearToken = await getUserLinearToken(session.user.id);  // NEW
+// ...
+await connectSandbox({
+  // ...
+  options: {
+    githubToken: githubToken ?? undefined,
+    linearToken: linearToken ?? undefined,  // NEW
+    // ...
+  },
+});
 ```
 
-Add right after:
-```ts
-const linearToken = await getUserLinearToken(session.user.id);
-```
+**`apps/web/app/api/chat/_lib/runtime.ts`** (~line 53): this file already has `getUserGitHubToken(userId)` inside a `Promise.all`. Add `getUserLinearToken(userId)` as a sibling and thread the result into `connectSandbox` options.
 
-Then in the `connectSandbox({ ... options: { githubToken, ... } })` call, add `linearToken: linearToken ?? undefined`. Don't fail if Linear isn't connected — it's optional.
-
-Also update `apps/web/lib/sandbox/lifecycle*.ts` and any other sandbox-related files (look for places that call `connectSandbox` or build sandbox options) to thread the Linear token through. **Audit**: grep `getUserGitHubToken` across the codebase and add a parallel `getUserLinearToken` call wherever a sandbox is being (re)created or resumed — there's likely a workflow file that does this too.
+**`apps/web/lib/sandbox/archive-session.ts`**: skip. Archive flow shuts the sandbox down; no agent work happens in that sandbox context.
 
 ## Phase 5 — Settings UI
 
@@ -480,24 +620,21 @@ Also update `apps/web/lib/sandbox/lifecycle*.ts` and any other sandbox-related f
 
 **File**: `apps/web/app/settings/accounts-section.tsx`
 
-This file currently renders the GitHub connection card. Add a Linear card below it.
+Add a Linear card below the GitHub card (or above — placement is cosmetic).
 
 Two states:
 
-- **Not connected**: text "Connect your Linear account to let agents read and update issues." + a button **Connect Linear** that links (anchor with `href`, full page navigation) to `/api/auth/signin/linear?next=/settings/accounts`.
-- **Connected**: shows the user's Linear `displayName` + email, and a **Disconnect** button that POSTs to `/api/auth/linear/unlink` then refreshes the page (or revalidates SWR).
+- **Not connected**: text "Connect your Linear account to let agents read and update issues." + a button **Connect Linear** that does a full-page navigation (anchor with `href`) to `/api/auth/signin/linear?next=/settings/accounts`.
+- **Connected**: shows `displayName · workspaceName` (e.g. `Brandon Southwick · Fluid Commerce`) and a **Disconnect** button that POSTs to `/api/auth/linear/unlink` then refreshes via SWR.
 
-**No scope display** (decided: noise).
+No email (matches GitHub card which shows `login` only).
+No scope display (decided).
 
-The component should fetch connection status. Two patterns available:
-- Server-render from a DB query in the parent `page.tsx`
-- Client-side fetch from a new `GET /api/linear/connection-status` endpoint
+Fetch connection status via a new endpoint (Section 5.2) using SWR, same pattern as the GitHub card uses for `/api/github/orgs/install-status`.
 
-Pick whichever the existing GitHub card uses for consistency.
+### 5.2 Status endpoint
 
-### 5.2 (Optional) status endpoint
-
-**New file (only if needed)**: `apps/web/app/api/linear/connection-status/route.ts`
+**New file**: `apps/web/app/api/linear/connection-status/route.ts`
 
 ```ts
 export async function GET(): Promise<Response> {
@@ -512,18 +649,22 @@ export async function GET(): Promise<Response> {
   return Response.json({
     connected: true,
     displayName: account.username,
-    email: account.email,
+    workspaceName: account.workspaceName ?? null,
   });
 }
 ```
 
 ### 5.3 Handle callback flash messages
 
-When the callback redirects back with `?linear=connected` or `?linear=error&reason=...`, the settings page should show a toast (use `sonner` — already installed) describing the outcome. Look for where the GitHub card handles its redirect status messages and mirror.
+When the callback redirects back with `?linear=connected` or `?linear=error&reason=...`, the settings page shows a toast (use `sonner` — already installed).
+
+Mirror the `useGitHubReturnToast` hook in `accounts-section.tsx` (lines 110–172 in the existing file) for Linear. Likely a new `useLinearReturnToast` hook that strips `?linear=` from the URL and fires the appropriate toast.
 
 ## Phase 6 — The skill (Linear SDK + Node)
 
 Skills live under `.agents/skills/<name>/` and consist of a `SKILL.md` describing when/how, plus optional executable scripts the agent can invoke.
+
+**Prerequisite:** Phase 0.5 has confirmed "replace" semantics. If it confirmed "append" instead, follow the relevant fallback from Phase 0.5 before building this phase.
 
 ### 6.1 Skill directory layout
 
@@ -555,7 +696,7 @@ Skills live under `.agents/skills/<name>/` and consist of a `SKILL.md` describin
 }
 ```
 
-The `*` version pin is intentional — let bun resolve the latest at first install. We can pin later if churn is a problem.
+The `*` version pin is intentional — let bun resolve the latest at first install.
 
 ### 6.3 `setup.sh`
 
@@ -569,24 +710,15 @@ if [ ! -d node_modules/@linear/sdk ]; then
 fi
 ```
 
-Make executable: `chmod +x setup.sh`. The skill scripts source/run this at the top so first invocation auto-installs.
+Make executable: `chmod +x setup.sh`. Scripts rely on this being run once per session (the SKILL.md instructs the agent to run it before first invocation).
 
 ### 6.4 Script template
 
-Each script in `bin/` follows this shape. The Linear SDK is initialized **without an explicit accessToken** — wait, that won't work; the SDK needs a token. **However**, the sandbox network proxy injects `Authorization: Bearer <token>` only for outbound requests. The `@linear/sdk` constructor reads the token client-side and adds the header itself, so we have to hand it _something_.
-
-**Solution**: pass a placeholder token to the SDK. The SDK adds `Authorization: Bearer <placeholder>` to the request. Then the sandbox proxy's `transform` rule **overwrites** the Authorization header with the real token before the request leaves the VM.
-
-⚠️ **Verify this header-overwrite behavior** during implementation. If the proxy's `transform` only _adds_ headers (not replaces), we need a different approach: either
-- (a) the SDK's `LinearClient` accepts a custom `fetch` function — pass one that strips the Authorization header so the proxy can add it, or
-- (b) skip the SDK and use raw `fetch` against `https://api.linear.app/graphql` directly (bash-script approach we previously rejected).
-
-Test this with a tiny script during Phase 4 implementation **before** building out all five scripts.
-
-Assuming overwrite works, script template:
+Each script in `bin/` follows this shape. Because Phase 0.5 confirmed the sandbox proxy **replaces** the Authorization header, we initialize `LinearClient` with a placeholder token — the proxy overwrites it with the real user token before the request leaves the VM.
 
 ```js
 // bin/linear-get-issue.mjs
+#!/usr/bin/env node
 import { LinearClient } from "@linear/sdk";
 
 const ISSUE_ID = process.argv[2];
@@ -595,7 +727,8 @@ if (!ISSUE_ID) {
   process.exit(2);
 }
 
-// Placeholder token — the sandbox network proxy injects the real Bearer token.
+// Placeholder token — the sandbox network proxy replaces Authorization
+// with the real Bearer token before the request leaves the VM. See Phase 0.5.
 const linear = new LinearClient({ accessToken: "sandbox-injected" });
 
 try {
@@ -632,8 +765,8 @@ description: Use this when the user references Linear issues, tickets, projects,
 ---
 
 You have access to Linear through scripts in this skill's directory.
-Authentication is handled automatically by the sandbox network layer — DO NOT
-read any LINEAR_* env vars (none are set; the token is brokered transparently).
+Authentication is brokered by the sandbox network layer (see environmentDetails).
+Scripts pass a placeholder token to @linear/sdk — the real token is injected by the proxy.
 
 Before invoking any script for the first time in a session, run:
 ```
@@ -663,8 +796,10 @@ All scripts emit JSON to stdout and human-readable errors to stderr.
 
 - Don't fall back to Linear when the user asks about GitHub issues — those are different systems.
 - Don't create or modify Linear data without confirming with the user first when the action is destructive (state changes, deletions).
-- If a script fails with "Linear not connected" or 401-style errors, tell the user to visit /settings/accounts on the deployment to connect their Linear account.
+- If a script fails with 401-style errors, the user either hasn't connected Linear or is connected to the wrong workspace. Tell them to visit /settings/accounts to reconnect.
 ```
+
+Keep SKILL.md focused on *when to invoke* and *which script*. Don't duplicate auth-mechanism explanation from `environmentDetails`.
 
 ## Phase 7 — Environment variables
 
@@ -673,9 +808,9 @@ After Phase 0 yields the Linear OAuth client credentials, set them on Vercel:
 ```bash
 cd /Users/brandon/open-agents
 
-# Use printf, NOT echo (avoids trailing newline corruption)
+# Use printf, NOT echo (avoids trailing newline corruption — see Status & context)
 for env in production development; do
-  printf '%s' '<linear_client_id>' | vercel env add NEXT_PUBLIC_LINEAR_CLIENT_ID "$env"
+  printf '%s' '<linear_client_id>' | vercel env add LINEAR_CLIENT_ID "$env"
   printf '%s' '<linear_client_secret>' | vercel env add LINEAR_CLIENT_SECRET "$env"
 done
 ```
@@ -688,15 +823,13 @@ Also document them in `apps/web/.env.example`:
 # Linear OAuth (optional — required to enable Linear integration)
 # Callback URL: {YOUR_ORIGIN}/api/linear/callback
 # Get these from a Linear OAuth app: https://linear.app/<workspace>/settings/api/applications
-NEXT_PUBLIC_LINEAR_CLIENT_ID=
+LINEAR_CLIENT_ID=
 LINEAR_CLIENT_SECRET=
 ```
 
-For local dev, also add to `apps/web/.env`:
-```
-NEXT_PUBLIC_LINEAR_CLIENT_ID=<same value>
-LINEAR_CLIENT_SECRET=<same value>
-```
+For local dev, add the same values to `apps/web/.env`.
+
+**Note:** Unlike `NEXT_PUBLIC_GITHUB_CLIENT_ID`, `LINEAR_CLIENT_ID` is server-only. It does NOT need to be added to `turbo.json`'s env allowlist (which is for client-exposed vars).
 
 ## Phase 8 — Testing
 
@@ -704,7 +837,7 @@ LINEAR_CLIENT_SECRET=<same value>
 
 Local:
 1. `bun run web` (dev server on http://localhost:3000)
-2. Navigate to `/settings/accounts` → click "Connect Linear" → authorize → confirm card flips to connected state.
+2. Navigate to `/settings/accounts` → click "Connect Linear" → authorize → pick workspace → confirm card flips to connected state showing `displayName · workspaceName`.
 3. Start a new session pointed at a repo.
 4. Prompt: "Look up FCM-1 in Linear" — agent should invoke `linear-get-issue.mjs FCM-1`, return issue details.
 5. Prompt: "Comment on FCM-1: 'agent investigating'" — agent should run `linear-comment.mjs`. Verify in Linear UI that the comment is attributed to your user.
@@ -714,38 +847,40 @@ Production:
 - Same checklist against `https://open-agents-azure-two.vercel.app`.
 - Verify migrations applied (look for `Migrations applied successfully` in deploy build log).
 
-### Header-overwrite verification (CRITICAL — do this in Phase 4)
-
-Before building the full skill, write a tiny test:
-1. SSH/exec into a sandbox: `vercel sandbox connect <id>` or via the agent's bash tool.
-2. Run: `curl -v -H "Authorization: Bearer FAKE_TOKEN" https://api.linear.app/viewer.json` (or some Linear endpoint).
-3. Inspect what arrives at Linear (use a request-bin or Linear's GraphQL playground introspection error to see headers).
-
-If the proxy correctly **replaces** the Authorization header with the real token, the SDK approach in Phase 6 works. If it only **appends** (resulting in two Authorization headers, or the wrong one winning), pivot to:
-- Use `LinearClient`'s custom `fetch` option to send requests _without_ an Authorization header at all, OR
-- Drop the SDK and use raw `fetch` calls in the scripts.
-
-### Unit tests (where they fit)
+### Unit tests
 
 Add to `apps/web/lib/linear/`:
-- `oauth.test.ts`: authorize URL builder includes correct params; `exchangeLinearCode` parses success and error responses (mock `fetch`).
+- `oauth.test.ts`: authorize URL builder includes correct params (PKCE challenge, comma-separated scope); `exchangeLinearCode` parses success and error responses (mock `fetch`).
 - `user-token.test.ts`: returns `null` when no account, returns decrypted token when not expired, refreshes when expired (mock `refreshLinearToken`, mock DB).
 
-Run: `bun test apps/web/lib/linear/`. Or include in the full suite via `bun run ci`.
+### Sandbox policy tests
+
+Extend `packages/sandbox/vercel/sandbox.test.ts` — it already has a "refreshes brokered GitHub auth when reconnecting to a sandbox" test (~line 399) that captures `updateNetworkPolicyCalls`. Mirror with three new cases:
+
+1. **Linear token only** — `connect` with `{ linearToken }` → asserts one `api.linear.app` transform + `"*": []` preserved, no GitHub entries.
+2. **Both tokens** — `connect` with `{ githubToken, linearToken }` → asserts both sets of transforms present + `"*": []`.
+3. **Neither token** — `connect` with `{}` → asserts policy is `{ "*": [] }` only (default allow-all preserved).
+
+Run: `bun test packages/sandbox/vercel/sandbox.test.ts` or include in `bun run ci`.
 
 ## Phase 9 — Deploy
 
-Commit each phase as its own logical commit so review is reasonable:
+Commit order (re-sequenced around Phase 0.5 and the unified policy builder):
 
 ```
-feat(db): add 'linear' to provider enum (+ migration)
-feat(linear): add OAuth library and user-token helper
-feat(linear): add OAuth routes (signin, callback, unlink)
-feat(sandbox): broker Linear API auth via network policy
-feat(settings): add Linear connection card
-feat(skills): add Linear skill with SDK-based scripts
-docs(env): document Linear OAuth env vars
+1. test(sandbox): verify header-overwrite behavior via webhook.site  [Phase 0.5 — manual verification log; no committed code unless you keep the probe in a throwaway branch]
+2. feat(db): add 'linear' to provider enum + workspaceName column (+ migration)
+3. feat(linear): add OAuth library (with PKCE) and user-token helper
+4. feat(linear): add OAuth routes (signin, callback, unlink)
+5. feat(sandbox): unified credential brokering policy (github + linear)
+6. test(sandbox): linear brokering reconnect tests
+7. feat(sandbox): document linear brokering in environmentDetails
+8. feat(settings): add Linear connection card with workspace display
+9. feat(skills): add Linear skill with SDK-based scripts
+10. docs(env): document Linear OAuth env vars
 ```
+
+Commits 5 + 7 are split so sandbox-layer code changes ship separately from agent-prompt changes — easier to revert one without the other if regressions appear.
 
 Then:
 ```bash
@@ -764,16 +899,24 @@ Then run the manual E2E checklist (Phase 8) against production.
 
 - **Webhook receiver** so the agent can react to Linear events (requires `app/api/linear/webhook/route.ts` + signature verification + workflow trigger).
 - **Pre-baked sandbox snapshot** with `@linear/sdk` already installed, eliminating first-invocation install latency. Use `bun run sandbox:snapshot-base` as the entry point.
+- **Multi-workspace support** — remove the `unique(userId, provider)` index on `accounts`, allow N Linear rows per user keyed by `workspaceUrlKey`; skill scripts gain an optional `--workspace` flag. Significant data-model and UX scope.
 - **Smarter scope handling** — if we ever request scopes that not all users grant, `getUserLinearToken` should expose granted scopes so the skill can degrade gracefully.
+- **Raw-fetch skill scripts as a fallback** — if Phase 0.5 revealed "append" semantics and we patched around it with a custom `fetch`, eventually migrate off `@linear/sdk` for simplicity.
 - **Migrate AI Gateway billing to fluid-commerce** by removing the `AI_GATEWAY_API_KEY` env var (currently uses personal account credits).
 - **Reconnect flow** mirroring GitHub's `github_reconnect` cookie pattern, for refresh-token failures.
+- **Force-sync on unlink** — iterate active sessions owned by the disconnecting user and push a fresh network policy that drops Linear. Currently we rely on natural refresh at the next chat turn.
 
 ## Risks / gotchas
 
-- **Header overwrite** (largest risk): Phase 6 assumes the sandbox proxy replaces existing Authorization headers. Verify this in Phase 4 testing before building all five scripts. Fallback options listed in Phase 8.
+- **Header overwrite** (largest risk — now gated by Phase 0.5): if the sandbox proxy **appends** instead of **replaces** the Authorization header, the `@linear/sdk` approach is broken. Phase 0.5 verifies this before any other code is written. Fallback plans are documented there.
 - **Linear API rate limits**: ~1500 requests/hour per OAuth app. Should be fine for interactive use; document in skill if hot-loops emerge.
-- **Refresh-token race conditions**: under concurrent requests for the same user, two refreshes can race and one will fail. Acceptable for v1; add a per-user mutex if it becomes a real issue.
-- **Network policy growth**: each new third-party we broker adds an `allow` entry. Phase 4 should establish a clean pattern (the merger function) so future integrations don't sprawl across `sandbox.ts`.
+- **Refresh-token rotation races**: Linear rotates refresh tokens on every use (confirmed against docs). Under concurrent requests for the same user, two refreshes can race and one will fail. Acceptable for v1; add a per-user mutex if it becomes a real issue.
+- **Revocation cascade ambiguity**: Linear's docs don't say whether revoking an access token cascades to the paired refresh token. Mitigation: unlink endpoint revokes BOTH tokens defensively (Phase 3.3). Residual risk is a breached-DB attacker with a pre-unlink refresh token snapshot — already covered by `ENCRYPTION_KEY` at-rest encryption.
+- **Mid-session disconnect window**: when a user disconnects Linear mid-session, their sandbox proxy still holds the old token until the next chat turn reconnect. Matches GitHub's behavior and is acceptable — the only beneficiary of the stale token is the same user who just disconnected.
+- **Wildcard preservation in policy**: every path that builds a `SandboxNetworkPolicy` MUST include `"*": []` in `allow`. Forgetting this rule turns the sandbox into a deny-by-default firewall. The unified `buildCredentialBrokeringPolicy` centralizes this; any future brokered-credential builder must be added inside that function, not alongside it.
+- **Reconnect path is load-bearing**: chat turns call `syncCredentialBrokering`, not `create`. If only `create` is updated with Linear threading, the feature breaks on the second chat turn of every session — silent regression. Phase 4.2 calls this out explicitly.
+- **Network policy growth**: each new third-party we broker adds a transform entry. The unified builder centralizes this so additions are a single `if (tokens.X)` block.
 - **Token leakage via SDK errors**: `@linear/sdk` may include the token in error messages it throws. Audit error logging in scripts and the user-token helper to avoid leaking decrypted tokens to Vercel logs.
-- **Trailing-newline regression**: re-emphasize `printf '%s'` over `echo` for any future env var setting. Worth adding a comment to `apps/web/.env.example` and to Phase 7 of this doc.
+- **Trailing-newline regression**: `printf '%s'` over `echo` for any future env var setting. Documented in Phase 7 and Status & context.
 - **Migration order**: the `ALTER TYPE ... ADD VALUE` must run before any code path inserts a row with `provider = 'linear'`. Migrations run during `bun run build`, so this is automatic — but if a developer manually runs the new code against an un-migrated DB locally, they'll get an error. Keep the migration in the same commit as the schema change.
+- **Workspace attribution**: Linear tokens are scoped to one workspace. If a user authorizes the wrong workspace, issue lookups silently return "not found" for issues in their intended workspace. Mitigation: settings card displays `displayName · workspaceName` so users can verify at a glance. Multi-workspace is an out-of-scope follow-up.

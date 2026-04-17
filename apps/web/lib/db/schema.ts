@@ -49,7 +49,7 @@ export const accounts = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     provider: text("provider", {
-      enum: ["github"],
+      enum: ["github", "linear"],
     })
       .notNull()
       .default("github"),
@@ -59,6 +59,7 @@ export const accounts = pgTable(
     expiresAt: timestamp("expires_at"),
     scope: text("scope"),
     username: text("username").notNull(),
+    workspaceName: text("workspace_name"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

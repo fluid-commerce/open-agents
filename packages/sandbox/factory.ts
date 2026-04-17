@@ -20,6 +20,8 @@ export interface ConnectOptions {
   env?: Record<string, string>;
   /** GitHub token used for credential brokering; never exposed inside the sandbox */
   githubToken?: string;
+  /** Linear token used for credential brokering; never exposed inside the sandbox */
+  linearToken?: string;
   /** Git user for commits */
   gitUser?: { name: string; email: string };
   /** Lifecycle hooks */

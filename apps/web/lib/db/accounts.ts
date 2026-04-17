@@ -100,3 +100,106 @@ export async function deleteGitHubAccount(userId: string): Promise<void> {
     .delete(accounts)
     .where(and(eq(accounts.userId, userId), eq(accounts.provider, "github")));
 }
+
+export async function upsertLinearAccount(data: {
+  userId: string;
+  externalUserId: string;
+  accessToken: string;
+  refreshToken?: string;
+  expiresAt?: Date;
+  scope?: string;
+  username: string;
+  workspaceName?: string;
+}): Promise<string> {
+  const existing = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(
+      and(eq(accounts.userId, data.userId), eq(accounts.provider, "linear")),
+    )
+    .limit(1);
+
+  if (existing.length > 0 && existing[0]) {
+    await db
+      .update(accounts)
+      .set({
+        externalUserId: data.externalUserId,
+        accessToken: data.accessToken,
+        refreshToken: data.refreshToken ?? null,
+        expiresAt: data.expiresAt ?? null,
+        scope: data.scope,
+        username: data.username,
+        workspaceName: data.workspaceName ?? null,
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, existing[0].id));
+    return existing[0].id;
+  }
+
+  const id = nanoid();
+  const now = new Date();
+  await db.insert(accounts).values({
+    id,
+    userId: data.userId,
+    provider: "linear",
+    externalUserId: data.externalUserId,
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    expiresAt: data.expiresAt,
+    scope: data.scope,
+    username: data.username,
+    workspaceName: data.workspaceName,
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id;
+}
+
+export async function getLinearAccount(userId: string): Promise<{
+  accessToken: string;
+  refreshToken: string | null;
+  expiresAt: Date | null;
+  username: string;
+  externalUserId: string;
+  workspaceName: string | null;
+} | null> {
+  const result = await db
+    .select({
+      accessToken: accounts.accessToken,
+      refreshToken: accounts.refreshToken,
+      expiresAt: accounts.expiresAt,
+      username: accounts.username,
+      externalUserId: accounts.externalUserId,
+      workspaceName: accounts.workspaceName,
+    })
+    .from(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.provider, "linear")))
+    .limit(1);
+
+  return result[0] ?? null;
+}
+
+export async function updateLinearAccountTokens(
+  userId: string,
+  data: {
+    accessToken: string;
+    refreshToken?: string;
+    expiresAt?: Date;
+  },
+): Promise<void> {
+  await db
+    .update(accounts)
+    .set({
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken ?? null,
+      expiresAt: data.expiresAt ?? null,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(accounts.userId, userId), eq(accounts.provider, "linear")));
+}
+
+export async function deleteLinearAccount(userId: string): Promise<void> {
+  await db
+    .delete(accounts)
+    .where(and(eq(accounts.userId, userId), eq(accounts.provider, "linear")));
+}

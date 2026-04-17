@@ -35,57 +35,62 @@ interface SandboxNetworkPolicy {
   allow: Record<string, SandboxNetworkRule[]>;
 }
 
-const DEFAULT_NETWORK_POLICY: SandboxNetworkPolicy = {
-  allow: {
-    "*": [],
-  },
-};
+function buildCredentialBrokeringPolicy(tokens: {
+  github?: string;
+  linear?: string;
+}): SandboxNetworkPolicy {
+  const allow: SandboxNetworkPolicy["allow"] = { "*": [] };
 
-function buildGitHubCredentialBrokeringPolicy(
-  token?: string,
-): SandboxNetworkPolicy {
-  if (!token) {
-    return DEFAULT_NETWORK_POLICY;
+  if (tokens.github) {
+    const basicAuthToken = Buffer.from(
+      `x-access-token:${tokens.github}`,
+      "utf-8",
+    ).toString("base64");
+    allow["api.github.com"] = [
+      {
+        transform: [{ headers: { Authorization: `Bearer ${tokens.github}` } }],
+      },
+    ];
+    allow["uploads.github.com"] = [
+      {
+        transform: [{ headers: { Authorization: `Bearer ${tokens.github}` } }],
+      },
+    ];
+    allow["codeload.github.com"] = [
+      {
+        transform: [{ headers: { Authorization: `Bearer ${tokens.github}` } }],
+      },
+    ];
+    allow["github.com"] = [
+      {
+        transform: [{ headers: { Authorization: `Basic ${basicAuthToken}` } }],
+      },
+    ];
   }
 
-  const basicAuthToken = Buffer.from(
-    `x-access-token:${token}`,
-    "utf-8",
-  ).toString("base64");
+  if (tokens.linear) {
+    allow["api.linear.app"] = [
+      {
+        transform: [{ headers: { Authorization: `Bearer ${tokens.linear}` } }],
+      },
+    ];
+  }
 
-  return {
-    allow: {
-      "api.github.com": [
-        {
-          transform: [{ headers: { Authorization: `Bearer ${token}` } }],
-        },
-      ],
-      "uploads.github.com": [
-        {
-          transform: [{ headers: { Authorization: `Bearer ${token}` } }],
-        },
-      ],
-      "codeload.github.com": [
-        {
-          transform: [{ headers: { Authorization: `Bearer ${token}` } }],
-        },
-      ],
-      "github.com": [
-        {
-          transform: [
-            { headers: { Authorization: `Basic ${basicAuthToken}` } },
-          ],
-        },
-      ],
-      "*": [],
-    },
-  };
+  return { allow };
 }
 
-async function syncGitHubCredentialBrokering(
+async function syncCredentialBrokering(
   sdk: VercelSandboxSDK,
-  token?: string,
+  tokens: { github?: string; linear?: string },
 ): Promise<void> {
+  // When no tokens are provided (e.g. agent tool reconnections that only know
+  // sandbox state, not user credentials), leave the existing network policy
+  // as-is. The initial createChatRuntime call sets the policy with real tokens;
+  // tool-level reconnections should not reset it.
+  if (!tokens.github && !tokens.linear) {
+    return;
+  }
+
   const updateNetworkPolicy = (
     sdk as VercelSandboxSDK & {
       updateNetworkPolicy?: (policy: SandboxNetworkPolicy) => Promise<void>;
@@ -93,18 +98,13 @@ async function syncGitHubCredentialBrokering(
   ).updateNetworkPolicy;
 
   if (typeof updateNetworkPolicy !== "function") {
-    if (token) {
-      throw new Error(
-        "Current @vercel/sandbox SDK does not support network policy updates required for GitHub credential brokering",
-      );
-    }
-    return;
+    throw new Error(
+      "Current @vercel/sandbox SDK does not support network policy updates required for credential brokering",
+    );
   }
 
-  await updateNetworkPolicy.call(
-    sdk,
-    buildGitHubCredentialBrokeringPolicy(token),
-  );
+  const policy = buildCredentialBrokeringPolicy(tokens);
+  await updateNetworkPolicy.call(sdk, policy);
 }
 
 function buildAuthenticatedGitHubUrl(
@@ -182,6 +182,7 @@ export class VercelSandbox implements Sandbox {
   private _expiresAt?: number;
   private _timeout?: number;
   private _ports?: number[];
+  private _linearBrokerEnabled?: boolean;
 
   /**
    * Timestamp (ms since epoch) when this sandbox will be proactively stopped.
@@ -212,6 +213,7 @@ export class VercelSandbox implements Sandbox {
     timeout?: number,
     startTime?: number,
     ports?: number[],
+    linearBrokerEnabled?: boolean,
   ) {
     this.sdk = sdk;
     this.session = session;
@@ -222,6 +224,7 @@ export class VercelSandbox implements Sandbox {
     this.currentBranch = currentBranch;
     this.hooks = hooks;
     this._ports = ports;
+    this._linearBrokerEnabled = linearBrokerEnabled;
     this.isStopped = isStoppedSessionStatus(session.status);
 
     // Set timeout tracking for proactive stop
@@ -423,7 +426,7 @@ export class VercelSandbox implements Sandbox {
 - Git is already configured (user, email, remote auth) - no setup or verification needed
 - GitHub CLI (gh) is NOT available - use curl with the GitHub API directly
   GitHub API and git HTTPS requests are authenticated automatically via credential brokering; do not pass tokens into commands.
-  Example: curl -X POST -H "Accept: application/vnd.github+json" https://api.github.com/repos/OWNER/REPO/pulls -d '{"title":"...","head":"branch","base":"main","body":"..."}'
+  Example: curl -X POST -H "Accept: application/vnd.github+json" https://api.github.com/repos/OWNER/REPO/pulls -d '{"title":"...","head":"branch","base":"main","body":"..."}'${this._linearBrokerEnabled ? "\n- Linear API requests (api.linear.app) are authenticated automatically via credential brokering when the user has connected Linear; do not pass tokens into scripts or env vars. If a Linear call returns 401, tell the user to connect Linear at /settings/accounts." : ""}
 - Node.js runtime with npm/pnpm available
 - Bun and jq are preinstalled
 - Dependencies may not be installed. Before running project scripts (build, typecheck, lint, test), check if \`node_modules\` exists and run the package manager install command if needed (e.g. \`bun install\`, \`npm install\`)
@@ -500,6 +503,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
       gitUser,
       env,
       githubToken,
+      linearToken,
       vcpus = 4,
       timeout = 300_000,
       runtime = "node22",
@@ -528,7 +532,10 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
       timeout: sdkTimeout,
       runtime,
       persistent,
-      networkPolicy: buildGitHubCredentialBrokeringPolicy(githubToken),
+      networkPolicy: buildCredentialBrokeringPolicy({
+        github: githubToken,
+        linear: linearToken,
+      }),
       ...(ports && { ports }),
       ...(snapshotExpiration !== undefined && { snapshotExpiration }),
     };
@@ -689,6 +696,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
       effectiveTimeout,
       startTime,
       ports,
+      !!linearToken,
     );
 
     // Call afterStart hook if provided
@@ -707,6 +715,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
     options: {
       env?: Record<string, string>;
       githubToken?: string;
+      linearToken?: string;
       hooks?: SandboxHooks;
       /**
        * Remaining timeout in ms for this sandbox session.
@@ -723,7 +732,10 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
       name: sandboxName,
       resume: options.resume ?? false,
     });
-    await syncGitHubCredentialBrokering(sdk, options.githubToken);
+    await syncCredentialBrokering(sdk, {
+      github: options.githubToken,
+      linear: options.linearToken,
+    });
     const session = sdk.currentSession();
 
     // Use provided remainingTimeout when available; otherwise derive it from the
@@ -749,6 +761,7 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
       remainingTimeout,
       startTime,
       options.ports,
+      !!options.linearToken,
     );
 
     // Call afterStart hook if provided (useful for reconnection setup)
@@ -1132,6 +1145,7 @@ export async function connectVercelSandbox(
     return VercelSandbox.connect(sandboxName, {
       env: connectConfig.env,
       githubToken: connectConfig.githubToken,
+      linearToken: connectConfig.linearToken,
       hooks: connectConfig.hooks,
       remainingTimeout: connectConfig.remainingTimeout,
       ports: connectConfig.ports,

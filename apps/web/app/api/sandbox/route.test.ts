@@ -82,10 +82,15 @@ mock.module("@/lib/db/accounts", () => ({
     refreshToken: null,
     expiresAt: null,
   }),
+  getLinearAccount: async () => null,
 }));
 
 mock.module("@/lib/github/user-token", () => ({
   getUserGitHubToken: async () => currentGitHubToken,
+}));
+
+mock.module("@/lib/linear/user-token", () => ({
+  getUserLinearToken: async () => null,
 }));
 
 mock.module("@/lib/vercel/token", () => ({

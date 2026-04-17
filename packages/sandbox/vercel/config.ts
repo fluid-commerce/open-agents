@@ -45,6 +45,8 @@ export interface VercelSandboxConfig {
   env?: Record<string, string>;
   /** GitHub token used for credential brokering; never exposed inside the sandbox. */
   githubToken?: string;
+  /** Linear token used for credential brokering; never exposed inside the sandbox. */
+  linearToken?: string;
   /**
    * Number of vCPUs (1-8). Each vCPU provides 2048 MB of memory.
    * @default 4
@@ -103,6 +105,8 @@ export interface VercelSandboxConnectConfig {
   env?: Record<string, string>;
   /** GitHub token used for credential brokering; never exposed inside the sandbox. */
   githubToken?: string;
+  /** Linear token used for credential brokering; never exposed inside the sandbox. */
+  linearToken?: string;
   /** Lifecycle hooks for setup and teardown */
   hooks?: SandboxHooks;
   /**

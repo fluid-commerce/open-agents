@@ -10,6 +10,7 @@ import { getGitHubAccount } from "@/lib/db/accounts";
 import { updateSession } from "@/lib/db/sessions";
 import { parseGitHubUrl } from "@/lib/github/client";
 import { getUserGitHubToken } from "@/lib/github/user-token";
+import { getUserLinearToken } from "@/lib/linear/user-token";
 import {
   DEFAULT_SANDBOX_BASE_SNAPSHOT_ID,
   DEFAULT_SANDBOX_PORTS,
@@ -129,7 +130,10 @@ export async function POST(req: Request) {
     return Response.json({ error: "Access denied" }, { status: 403 });
   }
 
-  const githubToken = await getUserGitHubToken(session.user.id);
+  const [githubToken, linearToken] = await Promise.all([
+    getUserGitHubToken(session.user.id),
+    getUserLinearToken(session.user.id),
+  ]);
 
   if (repoUrl) {
     const parsedRepo = parseGitHubUrl(repoUrl);
@@ -200,6 +204,7 @@ export async function POST(req: Request) {
       },
       options: {
         githubToken: githubToken ?? undefined,
+        linearToken: linearToken ?? undefined,
         gitUser,
         timeout: DEFAULT_SANDBOX_TIMEOUT_MS,
         ports: DEFAULT_SANDBOX_PORTS,

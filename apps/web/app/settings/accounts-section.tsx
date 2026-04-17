@@ -387,6 +387,146 @@ export function AccountsSection() {
           )}
         </div>
       </div>
+
+      <LinearConnectionCard />
+    </div>
+  );
+}
+
+interface LinearConnectionStatusResponse {
+  connected: boolean;
+  displayName?: string;
+  workspaceName?: string | null;
+}
+
+function useLinearReturnToast() {
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const linearParam = searchParams.get("linear");
+    if (!linearParam) return;
+
+    const reason = searchParams.get("reason");
+    const url = new URL(window.location.href);
+    url.searchParams.delete("linear");
+    url.searchParams.delete("reason");
+    window.history.replaceState({}, "", url.toString());
+
+    switch (linearParam) {
+      case "connected":
+        toast.success("Linear connected", {
+          description:
+            "Your Linear account is now linked. Agents can read and update issues.",
+        });
+        break;
+      case "error":
+        toast.error("Linear connection failed", {
+          description:
+            reason === "invalid_state"
+              ? "The authorization link expired. Please try again."
+              : reason === "not_signed_in"
+                ? "You must be signed in to connect Linear."
+                : `Failed to connect Linear${reason ? `: ${reason}` : ""}. Please try again.`,
+        });
+        break;
+      default:
+        break;
+    }
+  }, [searchParams]);
+}
+
+function LinearIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      viewBox="0 0 100 100"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M1.22541 61.5228c-.97401-1.6679-.97401-2.8765 0-4.5444L22.3135 17.3837c.9701-1.6629 2.6631-2.6633 4.612-2.6633h42.149c1.9489 0 3.642 1.0004 4.612 2.6633L94.7746 57.0784c.974 1.6679.974 2.8765 0 4.5444L73.6865 82.6163c-.97 1.6629-2.6631 2.6633-4.612 2.6633h-42.149c-1.9489 0-3.642-1.0004-4.612-2.6633L1.22541 61.5228z" />
+    </svg>
+  );
+}
+
+function LinearConnectionCard() {
+  useLinearReturnToast();
+
+  const {
+    data: linearStatus,
+    isLoading: linearLoading,
+    mutate: mutateLinear,
+  } = useSWR<LinearConnectionStatusResponse>(
+    "/api/linear/connection-status",
+    fetcher,
+  );
+
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  async function handleDisconnect() {
+    setDisconnecting(true);
+    try {
+      const res = await fetch("/api/auth/linear/unlink", { method: "POST" });
+      if (res.ok) {
+        await mutateLinear();
+        toast.success("Linear disconnected");
+      }
+    } catch (error) {
+      console.error("Failed to unlink Linear:", error);
+      toast.error("Failed to disconnect Linear");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  const isConnected = linearStatus?.connected ?? false;
+  const displayLabel = [linearStatus?.displayName, linearStatus?.workspaceName]
+    .filter(Boolean)
+    .join(" \u00B7 ");
+
+  return (
+    <div className="rounded-lg border border-border/50 bg-muted/10">
+      <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
+        <div className="flex items-center gap-2.5">
+          <LinearIcon className="h-5 w-5" />
+          <span className="text-sm font-medium">Linear</span>
+        </div>
+      </div>
+
+      <div className="space-y-4 p-4">
+        {linearLoading && !linearStatus ? (
+          <ConnectionLoadingSkeleton />
+        ) : isConnected ? (
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{displayLabel}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleDisconnect}
+              disabled={disconnecting}
+              className="h-7 shrink-0 text-xs text-destructive hover:text-destructive"
+            >
+              {disconnecting ? (
+                <Loader2 className="size-3 animate-spin" />
+              ) : (
+                "Disconnect"
+              )}
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Connect your Linear account to let agents read and update issues.
+            </p>
+            <Button variant="outline" size="sm" className="shrink-0" asChild>
+              <Link href="/api/auth/signin/linear?next=/settings/connections">
+                Connect
+              </Link>
+            </Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
