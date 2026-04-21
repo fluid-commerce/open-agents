@@ -73,6 +73,7 @@ import {
   PinnedTodoPanel,
   getLatestTodos,
 } from "@/components/pinned-todo-panel";
+import { TaskGroupView } from "@/components/task-group-view";
 import { ThinkingBlock } from "@/components/thinking-block";
 import { ToolCall } from "@/components/tool-call";
 import { OpenFileProvider } from "@/components/tool-call/open-file-context";
@@ -204,6 +205,12 @@ type MessageRenderGroup =
   | {
       type: "reasoning-group";
       parts: ReasoningMessagePart[];
+      startIndex: number;
+      renderKey: string;
+    }
+  | {
+      type: "task-group";
+      parts: WebAgentUIToolPart[];
       startIndex: number;
       renderKey: string;
     };
@@ -1483,8 +1490,35 @@ export function SessionChatContent({
         currentReasoningGroup = [];
       };
 
+      let currentTaskGroup: {
+        part: WebAgentUIToolPart;
+        index: number;
+      }[] = [];
+
+      const flushTaskGroup = () => {
+        if (currentTaskGroup.length === 0) return;
+        if (currentTaskGroup.length === 1) {
+          const { part, index } = currentTaskGroup[0];
+          groups.push({
+            type: "part",
+            part,
+            index,
+            renderKey: getStablePartRenderKey(part),
+          });
+        } else {
+          groups.push({
+            type: "task-group",
+            parts: currentTaskGroup.map(({ part }) => part),
+            startIndex: currentTaskGroup[0].index,
+            renderKey: `task-group:${getStablePartRenderKey(currentTaskGroup[0].part)}`,
+          });
+        }
+        currentTaskGroup = [];
+      };
+
       message.parts.forEach((part, index) => {
         if (isReasoningUIPart(part)) {
+          flushTaskGroup();
           if (currentReasoningGroup.length === 0) {
             reasoningGroupStartIndex = index;
           }
@@ -1493,6 +1527,16 @@ export function SessionChatContent({
         }
 
         flushReasoningGroup();
+
+        if (isToolUIPart(part) && part.type === "tool-task") {
+          currentTaskGroup.push({
+            part: part as WebAgentUIToolPart,
+            index,
+          });
+          return;
+        }
+
+        flushTaskGroup();
         groups.push({
           type: "part",
           part,
@@ -1502,6 +1546,7 @@ export function SessionChatContent({
       });
 
       flushReasoningGroup();
+      flushTaskGroup();
 
       return {
         message,
@@ -3358,6 +3403,37 @@ export function SessionChatContent({
                                           },
                                         )}
                                         partCount={group.parts.length}
+                                      />
+                                    </div>
+                                  );
+                                }
+
+                                if (group.type === "task-group") {
+                                  if (!isToolCallsExpanded) return null;
+                                  return (
+                                    <div
+                                      key={`${m.id}-${group.renderKey}`}
+                                      className="max-w-full pl-[22px]"
+                                    >
+                                      <TaskGroupView
+                                        taskParts={
+                                          group.parts as import("@open-harness/agent").TaskToolUIPart[]
+                                        }
+                                        activeApprovalId={null}
+                                        isStreaming={isMessageStreaming}
+                                        onApprove={(id) =>
+                                          addToolApprovalResponse({
+                                            id,
+                                            approved: true,
+                                          })
+                                        }
+                                        onDeny={(id, reason) =>
+                                          addToolApprovalResponse({
+                                            id,
+                                            approved: false,
+                                            reason,
+                                          })
+                                        }
                                       />
                                     </div>
                                   );

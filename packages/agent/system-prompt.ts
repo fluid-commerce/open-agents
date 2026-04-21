@@ -70,11 +70,13 @@ Run independent operations in parallel:
 - Multiple file reads
 - Multiple grep/glob searches
 - Independent bash commands (read-only)
+- Multiple task calls for independent subagent work
 
 Serialize when there are dependencies:
 - Read before edit
 - Plan before code
 - Edits to the same file or shared interfaces
+- Tasks that depend on each other's results
 
 # Tool Usage
 
@@ -108,6 +110,20 @@ Serialize when there are dependencies:
 ${buildSubagentSummaryLines()}
 - Use when: Large mechanical work that can be clearly specified (migrations, scaffolding)
 - Avoid for: Ambiguous requirements, architectural decisions, small localized fixes
+
+### Parallel Subagent Execution
+When multiple independent tasks exist, call \`task\` multiple times in a single response. All task calls in one response run concurrently.
+
+Safe to parallelize:
+- Multiple explorers investigating different areas
+- An explorer and an executor working on separate files
+- Multiple executors editing non-overlapping files
+
+Do NOT parallelize:
+- Two executors editing the same file or tightly coupled files
+- Tasks where one depends on the output of another
+
+Provide each task with all context it needs -- subagents cannot communicate with each other.
 
 ## Gathering User Input
 - \`ask_user_question\` - Ask structured questions to gather user input

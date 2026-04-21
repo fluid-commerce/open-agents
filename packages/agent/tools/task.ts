@@ -73,6 +73,8 @@ BEHAVIOR:
 - Subagents work AUTONOMOUSLY without asking follow-up questions
 - They run up to ${SUBAGENT_STEP_LIMIT} tool steps and then return
 - They return ONLY a concise summary - their internal steps are isolated from the parent
+- To run subagents in parallel, emit multiple task calls in one response -- they execute concurrently
+- Only parallelize tasks that are truly independent (no shared file writes)
 
 HOW TO USE:
 - Choose the appropriate subagentType based on the subagent descriptions above
