@@ -22,17 +22,18 @@ import {
 } from "@/lib/sandbox/lifecycle";
 import { kickSandboxLifecycleWorkflow } from "@/lib/sandbox/lifecycle-kick";
 import {
-  getVercelCliSandboxSetup,
-  syncVercelCliAuthToSandbox,
-} from "@/lib/sandbox/vercel-cli-auth";
-import { installGlobalSkills } from "@/lib/skills/global-skill-installer";
-import {
   canOperateOnSandbox,
   clearSandboxState,
   getSessionSandboxName,
   hasResumableSandboxState,
 } from "@/lib/sandbox/utils";
+import { extractVercelApiErrorMessage } from "@/lib/sandbox/vercel-api-error";
+import {
+  getVercelCliSandboxSetup,
+  syncVercelCliAuthToSandbox,
+} from "@/lib/sandbox/vercel-cli-auth";
 import { getServerSession } from "@/lib/session/get-server-session";
+import { installGlobalSkills } from "@/lib/skills/global-skill-installer";
 // import { buildDevelopmentDotenvFromVercelProject } from "@/lib/vercel/projects";
 // import { getUserVercelToken } from "@/lib/vercel/token";
 
@@ -231,10 +232,11 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    const message =
-      err instanceof Error ? err.message : "Unknown sandbox error";
     console.error("Sandbox creation failed:", err);
-    return Response.json({ error: message }, { status: 500 });
+    const detail = extractVercelApiErrorMessage(err);
+    const fallback =
+      err instanceof Error ? err.message : "Unknown sandbox error";
+    return Response.json({ error: detail ?? fallback }, { status: 500 });
   }
 
   if (sessionId && sandbox.getState) {

@@ -7,7 +7,7 @@ interface SnapshotSandbox {
   workingDirectory: string;
   exec(command: string, cwd: string, timeoutMs: number): Promise<ExecResult>;
   stop(): Promise<void>;
-  snapshot?(): Promise<SnapshotResult>;
+  snapshot?(opts?: { expiration?: number }): Promise<SnapshotResult>;
 }
 
 type SnapshotSandboxConnector = (
@@ -15,12 +15,22 @@ type SnapshotSandboxConnector = (
 ) => Promise<SnapshotSandbox>;
 
 export interface RefreshBaseSnapshotOptions {
-  baseSnapshotId: string;
+  /**
+   * Starting snapshot to build on top of. Omit to bootstrap a brand-new base
+   * snapshot from Vercel's default image (useful when no team-owned snapshot
+   * exists yet).
+   */
+  baseSnapshotId?: string;
   commands?: string[];
   sandboxTimeoutMs: number;
   commandTimeoutMs?: number;
   ports?: number[];
   env?: Record<string, string>;
+  /**
+   * Expiration for the created snapshot, in milliseconds. Pass 0 for a
+   * snapshot that never expires. Omit to use Vercel's default (30 days).
+   */
+  snapshotExpirationMs?: number;
   log?: (message: string) => void;
 }
 
@@ -33,7 +43,8 @@ export interface RefreshBaseSnapshotCommandResult {
 }
 
 export interface RefreshBaseSnapshotResult {
-  sourceSnapshotId: string;
+  /** Undefined when bootstrapping from Vercel's default image. */
+  sourceSnapshotId: string | undefined;
   snapshotId: string;
   commandResults: RefreshBaseSnapshotCommandResult[];
 }
@@ -85,13 +96,19 @@ export async function refreshBaseSnapshot(
   let snapshotCreated = false;
 
   try {
-    log(`Creating sandbox from base snapshot ${options.baseSnapshotId}.`);
+    log(
+      options.baseSnapshotId
+        ? `Creating sandbox from base snapshot ${options.baseSnapshotId}.`
+        : "Creating sandbox from Vercel's default image (no starting snapshot).",
+    );
     // Skip git init so the new base image does not ship `.git` in /vercel/sandbox
     // (would break `git clone … .` for agent sandboxes).
     sandbox = await connectSnapshotSandbox({
       state: { type: "vercel" },
       options: {
-        baseSnapshotId: options.baseSnapshotId,
+        ...(options.baseSnapshotId !== undefined && {
+          baseSnapshotId: options.baseSnapshotId,
+        }),
         timeout: options.sandboxTimeoutMs,
         persistent: false,
         skipGitWorkspaceBootstrap: true,
@@ -131,7 +148,11 @@ export async function refreshBaseSnapshot(
     }
 
     log("Creating snapshot from prepared sandbox.");
-    const snapshot = await sandbox.snapshot();
+    const snapshot = await sandbox.snapshot(
+      options.snapshotExpirationMs !== undefined
+        ? { expiration: options.snapshotExpirationMs }
+        : undefined,
+    );
     snapshotCreated = true;
     log(`Created snapshot ${snapshot.snapshotId}.`);
 

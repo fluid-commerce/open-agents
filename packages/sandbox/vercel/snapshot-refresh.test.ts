@@ -14,7 +14,9 @@ interface MockSnapshotSandbox {
     timeoutMs: number,
   ) => Promise<ExecResult>;
   stop: () => Promise<void>;
-  snapshot?: () => Promise<{ snapshotId: string }>;
+  snapshot?: (opts?: {
+    expiration?: number;
+  }) => Promise<{ snapshotId: string }>;
 }
 
 function createExecResult(overrides: Partial<ExecResult> = {}): ExecResult {
@@ -164,6 +166,81 @@ describe("refreshBaseSnapshot", () => {
     await expect(refreshPromise).rejects.toThrow("stderr:\ninstall error");
     expect(snapshot).not.toHaveBeenCalled();
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("forwards snapshotExpirationMs to sandbox.snapshot", async () => {
+    const snapshotCalls: Array<{ expiration?: number } | undefined> = [];
+    const snapshot = mock(async (opts?: { expiration?: number }) => {
+      snapshotCalls.push(opts);
+      return { snapshotId: "snap-never-expires" };
+    });
+
+    await refreshBaseSnapshot(
+      {
+        baseSnapshotId: "snap-current",
+        sandboxTimeoutMs: 300_000,
+        snapshotExpirationMs: 0,
+      },
+      {
+        connectSandbox: async () => createSandbox({ snapshot }),
+      },
+    );
+
+    expect(snapshotCalls).toEqual([{ expiration: 0 }]);
+  });
+
+  test("omits snapshot opts when snapshotExpirationMs is undefined", async () => {
+    const snapshotCalls: Array<{ expiration?: number } | undefined> = [];
+    const snapshot = mock(async (opts?: { expiration?: number }) => {
+      snapshotCalls.push(opts);
+      return { snapshotId: "snap-default-expiry" };
+    });
+
+    await refreshBaseSnapshot(
+      {
+        baseSnapshotId: "snap-current",
+        sandboxTimeoutMs: 300_000,
+      },
+      {
+        connectSandbox: async () => createSandbox({ snapshot }),
+      },
+    );
+
+    expect(snapshotCalls).toEqual([undefined]);
+  });
+
+  test("bootstraps from Vercel's default image when baseSnapshotId is omitted", async () => {
+    const connectCalls: SandboxConnectConfig[] = [];
+    const logs: string[] = [];
+
+    const result = await refreshBaseSnapshot(
+      {
+        sandboxTimeoutMs: 300_000,
+        snapshotExpirationMs: 0,
+        log: (message) => logs.push(message),
+      },
+      {
+        connectSandbox: async (config) => {
+          connectCalls.push(config);
+          return createSandbox();
+        },
+      },
+    );
+
+    expect(connectCalls).toEqual([
+      {
+        state: { type: "vercel" },
+        options: {
+          timeout: 300_000,
+          persistent: false,
+          skipGitWorkspaceBootstrap: true,
+        },
+      },
+    ]);
+    expect(result.sourceSnapshotId).toBeUndefined();
+    expect(logs[0]).toBe(
+      "Creating sandbox from Vercel's default image (no starting snapshot).",
+    );
   });
 
   test("stops the sandbox when snapshot support is unavailable", async () => {

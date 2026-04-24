@@ -1032,9 +1032,9 @@ ${hostLine}${portLines}${runtimeEnvLine}`;
    * Create a native Vercel snapshot of the sandbox filesystem.
    * IMPORTANT: This automatically stops the sandbox after snapshot creation.
    */
-  async snapshot(): Promise<SnapshotResult> {
+  async snapshot(opts?: { expiration?: number }): Promise<SnapshotResult> {
     // Use the current session snapshot method to avoid implicitly resuming stopped sandboxes.
-    const snapshot = await this.session.snapshot();
+    const snapshot = await this.session.snapshot(opts);
 
     // Mark sandbox as stopped since native snapshot stops it automatically
     this.isStopped = true;
